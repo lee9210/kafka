@@ -22,6 +22,7 @@ import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.requests.ProduceResponse;
 
 /**
+ * 已被服务器确认的记录的元数据
  * The metadata for a record that has been acknowledged by the server
  */
 public final class RecordMetadata {
@@ -30,7 +31,7 @@ public final class RecordMetadata {
      * Partition value for record without partition assigned
      */
     public static final int UNKNOWN_PARTITION = -1;
-
+    /** 本次发送数据的最后一条消息的偏移量 */
     private final long offset;
     // The timestamp of the message.
     // If LogAppendTime is used for the topic, the timestamp will be the timestamp returned by the broker.
@@ -41,9 +42,12 @@ public final class RecordMetadata {
     private final int serializedKeySize;
     private final int serializedValueSize;
     private final TopicPartition topicPartition;
-
+    /** 验证码 */
     private volatile Long checksum;
 
+    /**
+     * 创建一个实例
+     */
     public RecordMetadata(TopicPartition topicPartition, long baseOffset, long relativeOffset, long timestamp,
                           Long checksum, int serializedKeySize, int serializedValueSize) {
         // ignore the relativeOffset if the base offset is -1,
@@ -57,6 +61,7 @@ public final class RecordMetadata {
     }
 
     /**
+     * 检查元数据是否包含offset
      * Indicates whether the record metadata includes the offset.
      * @return true if the offset is included in the metadata, false otherwise.
      */
@@ -65,6 +70,7 @@ public final class RecordMetadata {
     }
 
     /**
+     * 返回offset
      * The offset of the record in the topic/partition.
      * @return the offset of the record, or -1 if {{@link #hasOffset()}} returns false.
      */
@@ -81,6 +87,7 @@ public final class RecordMetadata {
     }
 
     /**
+     * 返回创建时间
      * The timestamp of the record in the topic/partition.
      *
      * @return the timestamp of the record, or -1 if the {{@link #hasTimestamp()}} returns false.
@@ -90,6 +97,7 @@ public final class RecordMetadata {
     }
 
     /**
+     * 返回这条消息的验证码
      * The checksum (CRC32) of the record.
      *
      * @deprecated As of Kafka 0.11.0. Because of the potential for message format conversion on the broker, the
@@ -102,9 +110,10 @@ public final class RecordMetadata {
      */
     @Deprecated
     public long checksum() {
-        if (checksum == null)
-            // The checksum is null only for message format v2 and above, which do not have a record-level checksum.
+        // The checksum is null only for message format v2 and above, which do not have a record-level checksum.
+        if (checksum == null) {
             this.checksum = DefaultRecord.computePartialChecksum(timestamp, serializedKeySize, serializedValueSize);
+        }
         return this.checksum;
     }
 
