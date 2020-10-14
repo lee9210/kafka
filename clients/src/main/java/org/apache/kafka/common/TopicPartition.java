@@ -20,13 +20,16 @@ import java.io.Serializable;
 import java.util.Objects;
 
 /**
+ * topic和partition的包装类
  * A topic name and partition number
  */
 public final class TopicPartition implements Serializable {
     private static final long serialVersionUID = -613627415771699627L;
 
     private int hash = 0;
+    /** partitionId */
     private final int partition;
+    /** topic名称 */
     private final String topic;
 
     public TopicPartition(String topic, int partition) {
@@ -44,8 +47,9 @@ public final class TopicPartition implements Serializable {
 
     @Override
     public int hashCode() {
-        if (hash != 0)
+        if (hash != 0) {
             return hash;
+        }
         final int prime = 31;
         int result = 1;
         result = prime * result + partition;
@@ -56,12 +60,15 @@ public final class TopicPartition implements Serializable {
 
     @Override
     public boolean equals(Object obj) {
-        if (this == obj)
+        if (this == obj) {
             return true;
-        if (obj == null)
+        }
+        if (obj == null) {
             return false;
-        if (getClass() != obj.getClass())
+        }
+        if (getClass() != obj.getClass()) {
             return false;
+        }
         TopicPartition other = (TopicPartition) obj;
         return partition == other.partition && Objects.equals(topic, other.topic);
     }
