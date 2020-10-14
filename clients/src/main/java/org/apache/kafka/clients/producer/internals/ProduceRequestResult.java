@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 
 /**
+ * 生产者发送之后的结果，每个ProducerBatch中都有个一个实例。
  * A class that models the future completion of a produce request for a single partition. There is one of these per
  * partition in a produce request and it is shared by all the {@link RecordMetadata} instances that are batched together
  * for the same partition in the request.
@@ -39,6 +40,7 @@ public class ProduceRequestResult {
     private volatile RuntimeException error;
 
     /**
+     * 创建一个实例
      * Create an instance of this class.
      *
      * @param topicPartition The topic and partition to which this record set was sent was sent
@@ -48,6 +50,8 @@ public class ProduceRequestResult {
     }
 
     /**
+     * 记录结果
+     *
      * Set the result of the produce request.
      *
      * @param baseOffset The base offset assigned to the record
@@ -61,15 +65,18 @@ public class ProduceRequestResult {
     }
 
     /**
+     * 标记完成，并唤醒等待的线程
      * Mark this request as complete and unblock any threads waiting on its completion.
      */
     public void done() {
-        if (baseOffset == null)
+        if (baseOffset == null) {
             throw new IllegalStateException("The method `set` must be invoked before this method.");
+        }
         this.latch.countDown();
     }
 
     /**
+     * 让线程等待
      * Await the completion of this request
      */
     public void await() throws InterruptedException {
@@ -77,6 +84,7 @@ public class ProduceRequestResult {
     }
 
     /**
+     * 让线程等待，并设置等待时间
      * Await the completion of this request (up to the given time interval)
      * @param timeout The maximum time to wait
      * @param unit The unit for the max time
@@ -87,6 +95,7 @@ public class ProduceRequestResult {
     }
 
     /**
+     * 请求的baseOffset，batch中的第一条消息的偏移量
      * The base offset for the request (the first offset in the record set)
      */
     public long baseOffset() {
@@ -94,6 +103,7 @@ public class ProduceRequestResult {
     }
 
     /**
+     * 如果该主题使用日志追加时间，则返回true
      * Return true if log append time is being used for this topic
      */
     public boolean hasLogAppendTime() {
@@ -101,6 +111,7 @@ public class ProduceRequestResult {
     }
 
     /**
+     * 返回日志追加时间或者-1
      * The log append time or -1 if CreateTime is being used
      */
     public long logAppendTime() {
@@ -108,6 +119,7 @@ public class ProduceRequestResult {
     }
 
     /**
+     * 获取发送过程中的错误
      * The error thrown (generally on the server) while processing this request
      */
     public RuntimeException error() {
@@ -115,6 +127,7 @@ public class ProduceRequestResult {
     }
 
     /**
+     * 返回topic-partition
      * The topic and partition to which the record was appended
      */
     public TopicPartition topicPartition() {
@@ -122,6 +135,7 @@ public class ProduceRequestResult {
     }
 
     /**
+     * 检查request是否完成
      * Has the request completed?
      */
     public boolean completed() {
