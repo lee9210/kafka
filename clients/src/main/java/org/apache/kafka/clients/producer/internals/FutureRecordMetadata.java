@@ -25,17 +25,23 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
+ * 一条记录的发送结果的result，添加了下个包的发送结果，用于链式调用
  * The future result of a record send
  */
 public final class FutureRecordMetadata implements Future<RecordMetadata> {
 
     private final ProduceRequestResult result;
+    /** 相对偏移 */
     private final long relativeOffset;
     private final long createTimestamp;
+    /** 校验码 */
     private final Long checksum;
+    /** key序列化后的大小 */
     private final int serializedKeySize;
+    /** value序列化后的大小 */
     private final int serializedValueSize;
     private final Time time;
+    /** 下一条FutureRecordMetadata，主要用于链式调用 */
     private volatile FutureRecordMetadata nextRecordMetadata = null;
 
     public FutureRecordMetadata(ProduceRequestResult result, long relativeOffset, long createTimestamp,
@@ -59,11 +65,21 @@ public final class FutureRecordMetadata implements Future<RecordMetadata> {
         return false;
     }
 
+    /**
+     * 获取下一条batch的发送结果
+     * @return
+     * @throws InterruptedException
+     * @throws ExecutionException
+     */
     @Override
     public RecordMetadata get() throws InterruptedException, ExecutionException {
+        // 等待唤醒
         this.result.await();
-        if (nextRecordMetadata != null)
+        if (nextRecordMetadata != null) {
+            // 返回下条batch的发送结果
             return nextRecordMetadata.get();
+        }
+        // 如果有error就返回
         return valueOrError();
     }
 
@@ -74,10 +90,12 @@ public final class FutureRecordMetadata implements Future<RecordMetadata> {
         long timeoutMillis = unit.toMillis(timeout);
         long deadline = Long.MAX_VALUE - timeoutMillis < now ? Long.MAX_VALUE : now + timeoutMillis;
         boolean occurred = this.result.await(timeout, unit);
-        if (!occurred)
+        if (!occurred) {
             throw new TimeoutException("Timeout after waiting for " + timeoutMillis + " ms.");
-        if (nextRecordMetadata != null)
+        }
+        if (nextRecordMetadata != null) {
             return nextRecordMetadata.get(deadline - time.milliseconds(), TimeUnit.MILLISECONDS);
+        }
         return valueOrError();
     }
 
@@ -87,39 +105,52 @@ public final class FutureRecordMetadata implements Future<RecordMetadata> {
      * old big batch has been deemed as done.
      */
     void chain(FutureRecordMetadata futureRecordMetadata) {
-        if (nextRecordMetadata == null)
+        if (nextRecordMetadata == null) {
             nextRecordMetadata = futureRecordMetadata;
-        else
+        } else {
             nextRecordMetadata.chain(futureRecordMetadata);
+        }
     }
 
     RecordMetadata valueOrError() throws ExecutionException {
-        if (this.result.error() != null)
+        if (this.result.error() != null) {
             throw new ExecutionException(this.result.error());
-        else
+        } else {
             return value();
+        }
     }
 
     Long checksumOrNull() {
         return this.checksum;
     }
 
+    /**
+     * 返回下条batch的结果，如果没有的话就构造一个
+     * @return
+     */
     RecordMetadata value() {
-        if (nextRecordMetadata != null)
+        if (nextRecordMetadata != null) {
             return nextRecordMetadata.value();
+        }
+        // 构造一个返回数据的实例返回
         return new RecordMetadata(result.topicPartition(), this.result.baseOffset(), this.relativeOffset,
-                                  timestamp(), this.checksum, this.serializedKeySize, this.serializedValueSize);
+                timestamp(), this.checksum, this.serializedKeySize, this.serializedValueSize);
     }
 
     private long timestamp() {
         return result.hasLogAppendTime() ? result.logAppendTime() : createTimestamp;
     }
 
+    /**
+     * 检查本次批量发送是否完成。
+     * @return
+     */
     @Override
     public boolean isDone() {
-        if (nextRecordMetadata != null)
+        if (nextRecordMetadata != null) {
             return nextRecordMetadata.isDone();
+        }
+        // 如果本次发送只有一个包，则直接返回本次发送的结果
         return this.result.completed();
     }
-
 }
