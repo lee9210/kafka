@@ -17,17 +17,21 @@
 package org.apache.kafka.common.record;
 
 /**
+ * 用于访问记录的基本接口，这些记录可以包含在日志中，或者日志记录在内存中的具体化。
  * Base interface for accessing records which could be contained in the log, or an in-memory materialization of log records.
  */
 public interface BaseRecords {
     /**
+     * 这些记录的大小，以字节为单位。
      * The size of these records in bytes.
      * @return The size in bytes of the records
      */
     int sizeInBytes();
 
     /**
+     * 将这个{@link BaseRecords}对象封装到{@link RecordsSend}中
      * Encapsulate this {@link BaseRecords} object into {@link RecordsSend}
+     * @param  destination
      * @return Initialized {@link RecordsSend} object
      */
     RecordsSend toSend(String destination);
