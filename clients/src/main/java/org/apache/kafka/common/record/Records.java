@@ -25,7 +25,7 @@ import java.util.Iterator;
 
 
 /**
- * 用于访问日志中包含的记录的接口。日志本身表示为记录批的序列
+ * 用于访问log中包含的batch的接口。日志本身表示为记录批的序列
  *
  * Interface for accessing the records contained in a log. The log itself is represented as a sequence of record
  * batches (see {@link RecordBatch}).
@@ -71,8 +71,9 @@ public interface Records extends BaseRecords {
     long writeTo(GatheringByteChannel channel, long position, int length) throws IOException;
 
     /**
-     * 获取record batches。注意，签名允许子类返回更具体的批处理类型。这支持诸如就地偏移量分配(参见aaa)和记录数据的部分读取(参见bbb)等优化。
      * 返回一个迭代器
+     * 获取record batches。注意，签名允许子类返回更具体的批处理类型。这支持诸如就地偏移量分配(参见{@link DefaultRecordBatch})
+     * 和记录数据的部分读取(参见{@link FileLogInputStream.FileChannelRecordBatch#magic()}）)等优化。
      * Get the record batches. Note that the signature allows subclasses
      * to return a more specific batch type. This enables optimizations such as in-place offset
      * assignment (see for example {@link DefaultRecordBatch}), and partial reading of
