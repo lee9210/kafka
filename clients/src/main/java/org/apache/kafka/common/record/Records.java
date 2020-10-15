@@ -25,6 +25,8 @@ import java.util.Iterator;
 
 
 /**
+ * 用于访问日志中包含的记录的接口。日志本身表示为记录批的序列
+ *
  * Interface for accessing the records contained in a log. The log itself is represented as a sequence of record
  * batches (see {@link RecordBatch}).
  *
@@ -45,6 +47,7 @@ import java.util.Iterator;
  */
 public interface Records extends BaseRecords {
     int OFFSET_OFFSET = 0;
+    /** offset的长度 */
     int OFFSET_LENGTH = 8;
     int SIZE_OFFSET = OFFSET_OFFSET + OFFSET_LENGTH;
     int SIZE_LENGTH = 4;
@@ -57,6 +60,7 @@ public interface Records extends BaseRecords {
     int HEADER_SIZE_UP_TO_MAGIC = MAGIC_OFFSET + MAGIC_LENGTH;
 
     /**
+     * 尝试将此缓冲区的内容写入一个通道。
      * Attempts to write the contents of this buffer to a channel.
      * @param channel The channel to write to
      * @param position The position in the buffer to write from
@@ -67,6 +71,8 @@ public interface Records extends BaseRecords {
     long writeTo(GatheringByteChannel channel, long position, int length) throws IOException;
 
     /**
+     * 获取record batches。注意，签名允许子类返回更具体的批处理类型。这支持诸如就地偏移量分配(参见aaa)和记录数据的部分读取(参见bbb)等优化。
+     * 返回一个迭代器
      * Get the record batches. Note that the signature allows subclasses
      * to return a more specific batch type. This enables optimizations such as in-place offset
      * assignment (see for example {@link DefaultRecordBatch}), and partial reading of
@@ -76,6 +82,9 @@ public interface Records extends BaseRecords {
     Iterable<? extends RecordBatch> batches();
 
     /**
+     * 在record batches中获得一个迭代器。这类似于{@link #batches()}，但返回的是{@link AbstractIterator}而不是{@link Iterator}，
+     * 因此客户端可以使用{@link AbstractIterator#peek() peek}之类的方法。
+     *
      * Get an iterator over the record batches. This is similar to {@link #batches()} but returns an {@link AbstractIterator}
      * instead of {@link Iterator}, so that clients can use methods like {@link AbstractIterator#peek() peek}.
      * @return An iterator over the record batches of the log
@@ -83,6 +92,7 @@ public interface Records extends BaseRecords {
     AbstractIterator<? extends RecordBatch> batchIterator();
 
     /**
+     * 检查此缓冲区中的所有batch是否和magic相等。
      * Check whether all batches in this buffer have a certain magic value.
      * @param magic The magic value to check
      * @return true if all record batches have a matching magic value, false otherwise
@@ -90,6 +100,7 @@ public interface Records extends BaseRecords {
     boolean hasMatchingMagic(byte magic);
 
     /**
+     * 检查该日志缓冲区是否有一个与特定值兼容的magic值(即，该缓冲区中包含的所有消息集是否具有匹配或更低的magic)。
      * Check whether this log buffer has a magic value compatible with a particular value
      * (i.e. whether all message sets contained in the buffer have a matching or lower magic).
      * @param magic The magic version to ensure compatibility with
@@ -98,6 +109,9 @@ public interface Records extends BaseRecords {
     boolean hasCompatibleMagic(byte magic);
 
     /**
+     * 将此缓冲区中的所有batch转换为作为参数传递的格式。
+     * 注意，这需要深度迭代，因为所有深度记录也必须转换为所需的格式。
+     *
      * Convert all batches in this buffer to the format passed as a parameter. Note that this requires
      * deep iteration since all of the deep records must also be converted to the desired format.
      * @param toMagic The magic value to convert to
@@ -109,6 +123,9 @@ public interface Records extends BaseRecords {
     ConvertedRecords<? extends Records> downConvert(byte toMagic, long firstOffset, Time time);
 
     /**
+     * 使用迭代器遍历该日志中的记录。
+     * 请注意，这通常需要解压，因此应该谨慎使用。
+     *
      * Get an iterator over the records in this log. Note that this generally requires decompression,
      * and should therefore be used with care.
      * @return The record iterator
