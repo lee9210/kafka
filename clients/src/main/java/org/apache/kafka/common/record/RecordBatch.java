@@ -67,7 +67,7 @@ public interface RecordBatch extends Iterable<Record> {
     int NO_PARTITION_LEADER_EPOCH = -1;
 
     /**
-     * 检查这batch的校验和是否正确
+     * 检查这batch的checksum是否正确
      * Check whether the checksum of this batch is correct.
      *
      * @return true If so, false otherwise
@@ -75,7 +75,7 @@ public interface RecordBatch extends Iterable<Record> {
     boolean isValid();
 
     /**
-     * 如果校验和无效，则抛出异常。
+     * 如果checksum无效，则抛出异常。
      * Raise an exception if the checksum is not valid.
      */
     void ensureValid();
@@ -273,7 +273,7 @@ public interface RecordBatch extends Iterable<Record> {
     CloseableIterator<Record> streamingIterator(BufferSupplier decompressionBufferSupplier);
 
     /**
-     * 检查这是否是一个控制batch(即，是否在批处理属性中设置了控制位)。
+     * 检查这是否是一个控制batch(即，是否在batch属性中设置了控制位)。
      * 对于2之前的magic，false。
      * Check whether this is a control batch (i.e. whether the control bit is set in the batch attributes).
      * For magic versions prior to 2, this is always false.
