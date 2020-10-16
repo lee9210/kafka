@@ -67,9 +67,6 @@ public final class FutureRecordMetadata implements Future<RecordMetadata> {
 
     /**
      * 获取下一条batch的发送结果
-     * @return
-     * @throws InterruptedException
-     * @throws ExecutionException
      */
     @Override
     public RecordMetadata get() throws InterruptedException, ExecutionException {
@@ -83,6 +80,9 @@ public final class FutureRecordMetadata implements Future<RecordMetadata> {
         return valueOrError();
     }
 
+    /**
+     * 获取本次发送结果的元数据
+     */
     @Override
     public RecordMetadata get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
         // Handle overflow.
@@ -100,6 +100,7 @@ public final class FutureRecordMetadata implements Future<RecordMetadata> {
     }
 
     /**
+     * 根据分会的future，构造返回数据的链式结构
      * This method is used when we have to split a large batch in smaller ones. A chained metadata will allow the
      * future that has already returned to the users to wait on the newly created split batches even after the
      * old big batch has been deemed as done.
@@ -112,6 +113,9 @@ public final class FutureRecordMetadata implements Future<RecordMetadata> {
         }
     }
 
+    /**
+     * 返回batch发送结果的元数据
+     */
     RecordMetadata valueOrError() throws ExecutionException {
         if (this.result.error() != null) {
             throw new ExecutionException(this.result.error());
@@ -125,7 +129,7 @@ public final class FutureRecordMetadata implements Future<RecordMetadata> {
     }
 
     /**
-     * 返回下条batch的结果，如果没有的话就构造一个
+     * 返回下条batch发送的结果，如果没有的话就构造一个
      * @return
      */
     RecordMetadata value() {
