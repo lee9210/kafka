@@ -34,7 +34,7 @@ public interface MutableRecordBatch extends RecordBatch {
     void setLastOffset(long offset);
 
     /**
-     * 设置此batch处理的最大时间戳
+     * 设置此batch的最大时间戳
      *
      * Set the max timestamp for this batch. When using log append time, this effectively overrides the individual
      * timestamps of all the records contained in the batch. To avoid recompression, the record fields are not updated
