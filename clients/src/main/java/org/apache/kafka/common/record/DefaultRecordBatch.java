@@ -40,6 +40,7 @@ import java.util.Objects;
 import static org.apache.kafka.common.record.Records.LOG_OVERHEAD;
 
 /**
+ * magic 2 以上的RecordBatch默认实现
  * RecordBatch implementation for magic 2 and above. The schema is given below:
  *
  * RecordBatch =>
@@ -138,23 +139,32 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
         this.buffer = buffer;
     }
 
+    /**
+     * 获取magic值
+     */
     @Override
     public byte magic() {
         return buffer.get(MAGIC_OFFSET);
     }
 
+    /**
+     * 如果checksum无效，则抛出异常。
+     */
     @Override
     public void ensureValid() {
-        if (sizeInBytes() < RECORD_BATCH_OVERHEAD)
-            throw new CorruptRecordException("Record batch is corrupt (the size " + sizeInBytes() +
-                    " is smaller than the minimum allowed overhead " + RECORD_BATCH_OVERHEAD + ")");
-
-        if (!isValid())
-            throw new CorruptRecordException("Record is corrupt (stored crc = " + checksum()
-                    + ", computed crc = " + computeChecksum() + ")");
+        // 总长小于overhead
+        if (sizeInBytes() < RECORD_BATCH_OVERHEAD) {
+            throw new CorruptRecordException("Record batch is corrupt (the size " + sizeInBytes() + " is smaller than the minimum allowed overhead " + RECORD_BATCH_OVERHEAD + ")");
+        }
+        // 检查checksum
+        if (!isValid()) {
+            throw new CorruptRecordException("Record is corrupt (stored crc = " + checksum() + ", computed crc = " + computeChecksum() + ")");
+        }
     }
 
     /**
+     * 获取此batch中第一个record的时间戳。
+     * 它始终是record的创建时间，即使batch的时间戳类型是日志追加时间。
      * Get the timestamp of the first record in this batch. It is always the create time of the record even if the
      * timestamp type of the batch is log append time.
      *
@@ -164,105 +174,178 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
         return buffer.getLong(FIRST_TIMESTAMP_OFFSET);
     }
 
+    /**
+     * 获取此记录批处理的最大时间戳或日志追加时间。
+     */
     @Override
     public long maxTimestamp() {
         return buffer.getLong(MAX_TIMESTAMP_OFFSET);
     }
 
+    /**
+     * 获取此record batch的时间戳类型。
+     */
     @Override
     public TimestampType timestampType() {
         return (attributes() & TIMESTAMP_TYPE_MASK) == 0 ? TimestampType.CREATE_TIME : TimestampType.LOG_APPEND_TIME;
     }
 
+    /**
+     * 获取此record batch中的baseOffset。
+     * 对于2之前的magic版本，基偏移量始终是批处理中第一个消息的偏移量。 这通常需要深度迭代，并将返回记录批处理中第一个记录的偏移量。
+     * 对于magic version 2及以上版本，这将返回原始记录批处理的第一个偏移量(即压缩之前)。
+     */
     @Override
     public long baseOffset() {
         return buffer.getLong(BASE_OFFSET_OFFSET);
     }
 
+    /**
+     * 获取此record batch中的最后偏移量。
+     */
     @Override
     public long lastOffset() {
+        // 基础增量加上最后偏量
         return baseOffset() + lastOffsetDelta();
     }
 
+    /**
+     * 获取producerId
+     */
     @Override
     public long producerId() {
         return buffer.getLong(PRODUCER_ID_OFFSET);
     }
 
+    /**
+     * 获取producer版本号
+     */
     @Override
     public short producerEpoch() {
         return buffer.getShort(PRODUCER_EPOCH_OFFSET);
     }
 
+    /**
+     * 获取record batch的序列号
+     */
     @Override
     public int baseSequence() {
         return buffer.getInt(BASE_SEQUENCE_OFFSET);
     }
 
+    /**
+     * 获取最后一条record的offset
+     */
     private int lastOffsetDelta() {
         return buffer.getInt(LAST_OFFSET_DELTA_OFFSET);
     }
 
+    /**
+     * 获取record batch的最后一条序列号
+     */
     @Override
     public int lastSequence() {
+        // 获取第一条序列号
         int baseSequence = baseSequence();
-        if (baseSequence == RecordBatch.NO_SEQUENCE)
+        // 如果没有则返回-1
+        if (baseSequence == RecordBatch.NO_SEQUENCE) {
             return RecordBatch.NO_SEQUENCE;
+        }
+        // 返回增加量
         return incrementSequence(baseSequence, lastOffsetDelta());
     }
 
+    /**
+     * 获取压缩方式
+     */
     @Override
     public CompressionType compressionType() {
         return CompressionType.forId(attributes() & COMPRESSION_CODEC_MASK);
     }
 
+    /**
+     * 获取此batch的大小(以字节为单位)，包括record的大小和batch overhead。
+     */
     @Override
     public int sizeInBytes() {
         return LOG_OVERHEAD + buffer.getInt(LENGTH_OFFSET);
     }
 
+    /**
+     * 获取record的数量
+     */
     private int count() {
         return buffer.getInt(RECORDS_COUNT_OFFSET);
     }
 
+    /**
+     * 获取record的数量
+     */
     @Override
     public Integer countOrNull() {
         return count();
     }
 
+    /**
+     * 把此buffer复制一份，写入到传入buffer中
+     * @param buffer The buffer to write the batch to
+     */
     @Override
     public void writeTo(ByteBuffer buffer) {
         buffer.put(this.buffer.duplicate());
     }
 
+    /**
+     * 把此buffer复制一份，写入到outputStream中
+     * @param outputStream The buffer to write the batch to
+     */
     @Override
     public void writeTo(ByteBufferOutputStream outputStream) {
         outputStream.write(this.buffer.duplicate());
     }
 
+    /**
+     * 检查是否是事务
+     */
     @Override
     public boolean isTransactional() {
         return (attributes() & TRANSACTIONAL_FLAG_MASK) > 0;
     }
 
+    /**
+     * 检查这是否是一个控制batch(即，是否在batch属性中设置了控制位)。
+     * 对于2之前的magic，false。
+     * @return
+     */
     @Override
     public boolean isControlBatch() {
         return (attributes() & CONTROL_FLAG_MASK) > 0;
     }
 
+    /**
+     * 获取partition leader的版本号
+     * @return
+     */
     @Override
     public int partitionLeaderEpoch() {
         return buffer.getInt(PARTITION_LEADER_EPOCH_OFFSET);
     }
 
+    /**
+     * 获取record的迭代器
+     */
     private CloseableIterator<Record> compressedIterator(BufferSupplier bufferSupplier, boolean skipKeyValue) {
+        // 复制一份
         final ByteBuffer buffer = this.buffer.duplicate();
+        // 定位开始位置
         buffer.position(RECORDS_OFFSET);
+        // 构造inputStream
         final DataInputStream inputStream = new DataInputStream(compressionType().wrapForInput(buffer, magic(),
             bufferSupplier));
 
         if (skipKeyValue) {
             // this buffer is used to skip length delimited fields like key, value, headers
+            // 此缓冲区用于跳过以长度分隔的字段，例如key, value, headers
             byte[] skipArray = new byte[MAX_SKIP_BUFFER_SIZE];
 
             return new StreamRecordIterator(inputStream) {
@@ -281,6 +364,10 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
         }
     }
 
+    /**
+     * 获取record的未经压缩的迭代器
+     * @return
+     */
     private CloseableIterator<Record> uncompressedIterator() {
         final ByteBuffer buffer = this.buffer.duplicate();
         buffer.position(RECORDS_OFFSET);
@@ -302,25 +389,38 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
         };
     }
 
+    /**
+     * 获取record迭代器
+     */
     @Override
     public Iterator<Record> iterator() {
-        if (count() == 0)
+        if (count() == 0) {
             return Collections.emptyIterator();
-
-        if (!isCompressed())
+        }
+        // 如果压缩过，则创建解压缩后的迭代器
+        if (!isCompressed()) {
             return uncompressedIterator();
+        }
 
         // for a normal iterator, we cannot ensure that the underlying compression stream is closed,
         // so we decompress the full record set here. Use cases which call for a lower memory footprint
         // can use `streamingIterator` at the cost of additional complexity
+        // 创建迭代器
         try (CloseableIterator<Record> iterator = compressedIterator(BufferSupplier.NO_CACHING, false)) {
+            // 用list来存储
             List<Record> records = new ArrayList<>(count());
-            while (iterator.hasNext())
+            while (iterator.hasNext()) {
                 records.add(iterator.next());
+            }
+            // 返回迭代器
             return records.iterator();
         }
     }
 
+    /**
+     * 获取record迭代器
+     * key和value都为空
+     */
     @Override
     public CloseableIterator<Record> skipKeyValueIterator(BufferSupplier bufferSupplier) {
         if (count() == 0) {
@@ -332,33 +432,46 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
          * its ByteBufferInputStream's skip() function is less efficient compared with just reading it actually
          * as it will allocate new byte array.
          */
-        if (!isCompressed())
+        if (!isCompressed()) {
             return uncompressedIterator();
+        }
 
         // we define this to be a closable iterator so that caller (i.e. the log validator) needs to close it
         // while we can save memory footprint of not decompressing the full record set ahead of time
         return compressedIterator(bufferSupplier, true);
     }
 
+    /**
+     * 返回一个流迭代器
+     */
     @Override
     public CloseableIterator<Record> streamingIterator(BufferSupplier bufferSupplier) {
-        if (isCompressed())
+        if (isCompressed()) {
             return compressedIterator(bufferSupplier, false);
-        else
+        } else {
             return uncompressedIterator();
+        }
     }
 
+    /**
+     * 设置此batch的最后偏移量。
+     * @param offset The last offset to use
+     */
     @Override
     public void setLastOffset(long offset) {
         buffer.putLong(BASE_OFFSET_OFFSET, offset - lastOffsetDelta());
     }
 
+    /**
+     * 设置此batch处理的最大时间戳
+     */
     @Override
     public void setMaxTimestamp(TimestampType timestampType, long maxTimestamp) {
         long currentMaxTimestamp = maxTimestamp();
         // We don't need to recompute crc if the timestamp is not updated.
-        if (timestampType() == timestampType && currentMaxTimestamp == maxTimestamp)
+        if (timestampType() == timestampType && currentMaxTimestamp == maxTimestamp) {
             return;
+        }
 
         byte attributes = computeAttributes(compressionType(), timestampType, isTransactional(), isControlBatch());
         buffer.putShort(ATTRIBUTES_OFFSET, attributes);
@@ -367,24 +480,43 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
         ByteUtils.writeUnsignedInt(buffer, CRC_OFFSET, crc);
     }
 
+    /**
+     * 为这个batch设置partition leader版本号
+     * @param epoch The partition leader epoch to use
+     */
     @Override
     public void setPartitionLeaderEpoch(int epoch) {
         buffer.putInt(PARTITION_LEADER_EPOCH_OFFSET, epoch);
     }
 
+    /**
+     * 获取checksum
+     */
     @Override
     public long checksum() {
         return ByteUtils.readUnsignedInt(buffer, CRC_OFFSET);
     }
 
+    /**
+     * 检查这batch的checksum是否正确
+     */
+    @Override
     public boolean isValid() {
         return sizeInBytes() >= RECORD_BATCH_OVERHEAD && checksum() == computeChecksum();
     }
 
+    /**
+     * 计算checksum
+     * @return
+     */
     private long computeChecksum() {
         return Crc32C.compute(buffer, ATTRIBUTES_OFFSET, buffer.limit() - ATTRIBUTES_OFFSET);
     }
 
+    /**
+     * 获取attribute
+     * @return
+     */
     private byte attributes() {
         // note we're not using the second byte of attributes
         return (byte) buffer.getShort(ATTRIBUTES_OFFSET);
@@ -392,10 +524,12 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
 
     @Override
     public boolean equals(Object o) {
-        if (this == o)
+        if (this == o) {
             return true;
-        if (o == null || getClass() != o.getClass())
+        }
+        if (o == null || getClass() != o.getClass()) {
             return false;
+        }
 
         DefaultRecordBatch that = (DefaultRecordBatch) o;
         return Objects.equals(buffer, that.buffer);
@@ -406,22 +540,32 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
         return buffer != null ? buffer.hashCode() : 0;
     }
 
+    /**
+     * 计算attribute
+     */
     private static byte computeAttributes(CompressionType type, TimestampType timestampType,
                                           boolean isTransactional, boolean isControl) {
-        if (timestampType == TimestampType.NO_TIMESTAMP_TYPE)
+        if (timestampType == TimestampType.NO_TIMESTAMP_TYPE) {
             throw new IllegalArgumentException("Timestamp type must be provided to compute attributes for message " +
                     "format v2 and above");
+        }
 
         byte attributes = isTransactional ? TRANSACTIONAL_FLAG_MASK : 0;
-        if (isControl)
+        if (isControl) {
             attributes |= CONTROL_FLAG_MASK;
-        if (type.id > 0)
+        }
+        if (type.id > 0) {
             attributes |= COMPRESSION_CODEC_MASK & type.id;
-        if (timestampType == TimestampType.LOG_APPEND_TIME)
+        }
+        if (timestampType == TimestampType.LOG_APPEND_TIME) {
             attributes |= TIMESTAMP_TYPE_MASK;
+        }
         return attributes;
     }
 
+    /**
+     * buffer中写入空header
+     */
     public static void writeEmptyHeader(ByteBuffer buffer,
                                         byte magic,
                                         long producerId,
@@ -440,6 +584,9 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
                 producerEpoch, baseSequence, isTransactional, isControlRecord, partitionLeaderEpoch, 0);
     }
 
+    /**
+     * 往buffer中写header
+     */
     static void writeHeader(ByteBuffer buffer,
                             long baseOffset,
                             int lastOffsetDelta,
@@ -456,10 +603,12 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
                             boolean isControlBatch,
                             int partitionLeaderEpoch,
                             int numRecords) {
-        if (magic < RecordBatch.CURRENT_MAGIC_VALUE)
+        if (magic < RecordBatch.CURRENT_MAGIC_VALUE) {
             throw new IllegalArgumentException("Invalid magic value " + magic);
-        if (firstTimestamp < 0 && firstTimestamp != NO_TIMESTAMP)
+        }
+        if (firstTimestamp < 0 && firstTimestamp != NO_TIMESTAMP) {
             throw new IllegalArgumentException("Invalid message timestamp " + firstTimestamp);
+        }
 
         short attributes = computeAttributes(compressionType, timestampType, isTransactional, isControlBatch);
 
@@ -491,16 +640,18 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
 
     public static int sizeInBytes(long baseOffset, Iterable<Record> records) {
         Iterator<Record> iterator = records.iterator();
-        if (!iterator.hasNext())
+        if (!iterator.hasNext()) {
             return 0;
+        }
 
         int size = RECORD_BATCH_OVERHEAD;
         Long firstTimestamp = null;
         while (iterator.hasNext()) {
             Record record = iterator.next();
             int offsetDelta = (int) (record.offset() - baseOffset);
-            if (firstTimestamp == null)
+            if (firstTimestamp == null) {
                 firstTimestamp = record.timestamp();
+            }
             long timestampDelta = record.timestamp() - firstTimestamp;
             size += DefaultRecord.sizeInBytes(offsetDelta, timestampDelta, record.key(), record.value(),
                     record.headers());
@@ -510,16 +661,18 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
 
     public static int sizeInBytes(Iterable<SimpleRecord> records) {
         Iterator<SimpleRecord> iterator = records.iterator();
-        if (!iterator.hasNext())
+        if (!iterator.hasNext()) {
             return 0;
+        }
 
         int size = RECORD_BATCH_OVERHEAD;
         int offsetDelta = 0;
         Long firstTimestamp = null;
         while (iterator.hasNext()) {
             SimpleRecord record = iterator.next();
-            if (firstTimestamp == null)
+            if (firstTimestamp == null) {
                 firstTimestamp = record.timestamp();
+            }
             long timestampDelta = record.timestamp() - firstTimestamp;
             size += DefaultRecord.sizeInBytes(offsetDelta++, timestampDelta, record.key(), record.value(),
                     record.headers());
@@ -528,6 +681,9 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
     }
 
     /**
+     * 使用给定的键和值获取只有单个record batch的大小上限。
+     * 这只是一个估计，因为它没有考虑到来自所使用的压缩算法的额外开销。
+     *
      * Get an upper bound on the size of a batch with only a single record using a given key and value. This
      * is only an estimate because it does not take into account additional overhead from the compression
      * algorithm used.
@@ -536,18 +692,37 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
         return RECORD_BATCH_OVERHEAD + DefaultRecord.recordSizeUpperBound(key, value, headers);
     }
 
+    /**
+     * 获取最后一条record的序列号
+     * @param sequence
+     * @param increment
+     * @return
+     */
     public static int incrementSequence(int sequence, int increment) {
-        if (sequence > Integer.MAX_VALUE - increment)
+        // 检查是否出错
+        if (sequence > Integer.MAX_VALUE - increment) {
             return increment - (Integer.MAX_VALUE - sequence) - 1;
+        }
+        // 直接加
         return sequence + increment;
     }
 
+    /**
+     * 序列号减少decrement
+     * @param sequence
+     * @param decrement
+     * @return
+     */
     public static int decrementSequence(int sequence, int decrement) {
-        if (sequence < decrement)
+        if (sequence < decrement) {
             return Integer.MAX_VALUE - (decrement - sequence) + 1;
+        }
         return sequence - decrement;
     }
 
+    /**
+     * record迭代器
+     */
     private abstract class RecordIterator implements CloseableIterator<Record> {
         private final Long logAppendTime;
         private final long baseOffset;
@@ -562,9 +737,10 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
             this.firstTimestamp = firstTimestamp();
             this.baseSequence = baseSequence();
             int numRecords = count();
-            if (numRecords < 0)
+            if (numRecords < 0) {
                 throw new InvalidRecordException("Found invalid record count " + numRecords + " in magic v" +
                         magic() + " batch");
+            }
             this.numRecords = numRecords;
         }
 
@@ -575,17 +751,20 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
 
         @Override
         public Record next() {
-            if (readRecords >= numRecords)
+            if (readRecords >= numRecords) {
                 throw new NoSuchElementException();
+            }
 
             readRecords++;
+            // 获取下个record
             Record rec = readNext(baseOffset, firstTimestamp, baseSequence, logAppendTime);
             if (readRecords == numRecords) {
                 // Validate that the actual size of the batch is equal to declared size
                 // by checking that after reading declared number of items, there no items left
                 // (overflow case, i.e. reading past buffer end is checked elsewhere).
-                if (!ensureNoneRemaining())
+                if (!ensureNoneRemaining()) {
                     throw new InvalidRecordException("Incorrect declared batch size, records still remaining in file");
+                }
             }
             return rec;
         }
@@ -601,6 +780,9 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
 
     }
 
+    /**
+     * 流式Record迭代器
+     */
     private abstract class StreamRecordIterator extends RecordIterator {
         private final DataInputStream inputStream;
 
@@ -641,6 +823,9 @@ public class DefaultRecordBatch extends AbstractRecordBatch implements MutableRe
         }
     }
 
+    /**
+     * 读取文件的record batch
+     */
     static class DefaultFileChannelRecordBatch extends FileLogInputStream.FileChannelRecordBatch {
 
         DefaultFileChannelRecordBatch(long offset,
