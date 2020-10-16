@@ -23,6 +23,9 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 
+/**
+ * 发送batch发生错误的情况下的回调
+ */
 public class ErrorLoggingCallback implements Callback {
     private static final Logger log = LoggerFactory.getLogger(ErrorLoggingCallback.class);
     private String topic;
@@ -43,6 +46,13 @@ public class ErrorLoggingCallback implements Callback {
         this.logAsString = logAsString;
     }
 
+    /**
+     * 完成之后的动作
+     * @param metadata The metadata for the record that was sent (i.e. the partition and offset). An empty metadata
+     *                 with -1 value for all fields except for topicPartition will be returned if an error occurred.
+     * @param e
+     */
+    @Override
     public void onCompletion(RecordMetadata metadata, Exception e) {
         if (e != null) {
             String keyString = (key == null) ? "null" :
