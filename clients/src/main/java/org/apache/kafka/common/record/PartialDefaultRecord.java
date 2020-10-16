@@ -20,6 +20,9 @@ import org.apache.kafka.common.header.Header;
 
 import java.nio.ByteBuffer;
 
+/**
+ * 部分记录
+ */
 public class PartialDefaultRecord extends DefaultRecord {
 
     private final int keySize;
