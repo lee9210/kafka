@@ -38,6 +38,7 @@ import java.util.zip.Checksum;
 import static org.apache.kafka.common.record.RecordBatch.MAGIC_VALUE_V2;
 
 /**
+ * 这个类实现了magic 2及以上版本的record格式。
  * This class implements the inner record format for magic 2 and above. The schema is as follows:
  *
  *
@@ -99,30 +100,50 @@ public class DefaultRecord implements Record {
         this.headers = headers;
     }
 
+    /**
+     * 这条消息的offset
+     */
     @Override
     public long offset() {
         return offset;
     }
 
+    /**
+     * 获取生产者分配的序列号。
+     */
     @Override
     public int sequence() {
         return sequence;
     }
 
+    /**
+     * 获取该record的大小(以字节为单位)。
+     */
     @Override
     public int sizeInBytes() {
         return sizeInBytes;
     }
 
+    /**
+     * 获取时间戳
+     * @return
+     */
     @Override
     public long timestamp() {
         return timestamp;
     }
 
+    /**
+     * 获取attributes
+     * @return
+     */
     public byte attributes() {
         return attributes;
     }
 
+    /**
+     * 返回校验码
+     */
     @Override
     public Long checksumOrNull() {
         return null;
@@ -130,6 +151,8 @@ public class DefaultRecord implements Record {
 
     @Override
     public boolean isValid() {
+        //新版本的消息格式(2及以上)不包含单个record的checksum;
+        //相反，在日志条目级别使用校验和验证它们
         // new versions of the message format (2 and above) do not contain an individual record checksum;
         // instead they are validated with the checksum at the log entry level
         return true;
@@ -138,42 +161,65 @@ public class DefaultRecord implements Record {
     @Override
     public void ensureValid() {}
 
+    /**
+     * 获取key的大小(以字节为单位)。
+     */
     @Override
     public int keySize() {
         return key == null ? -1 : key.remaining();
     }
 
+    /**
+     * 获取value的大小(以字节为单位)。
+     */
     @Override
     public int valueSize() {
         return value == null ? -1 : value.remaining();
     }
 
+    /**
+     * 检查是否有key
+     * @return
+     */
     @Override
     public boolean hasKey() {
         return key != null;
     }
 
+    /**
+     * 复制一份key返回
+     */
     @Override
     public ByteBuffer key() {
         return key == null ? null : key.duplicate();
     }
 
+    /**
+     * 检查是否有value
+     */
     @Override
     public boolean hasValue() {
         return value != null;
     }
 
+    /**
+     * 复制一份value返回
+     */
     @Override
     public ByteBuffer value() {
         return value == null ? null : value.duplicate();
     }
 
+    /**
+     * 返回header
+     */
     @Override
     public Header[] headers() {
         return headers;
     }
 
     /**
+     * 将record写到out中，并返回他的大小
      * Write the record to `out` and return its size.
      */
     public static int writeTo(DataOutputStream out,
@@ -207,15 +253,17 @@ public class DefaultRecord implements Record {
             Utils.writeTo(out, value, valueSize);
         }
 
-        if (headers == null)
+        if (headers == null) {
             throw new IllegalArgumentException("Headers cannot be null");
+        }
 
         ByteUtils.writeVarint(headers.length, out);
 
         for (Header header : headers) {
             String headerKey = header.key();
-            if (headerKey == null)
+            if (headerKey == null) {
                 throw new IllegalArgumentException("Invalid null header key found in headers");
+            }
 
             byte[] utf8Bytes = Utils.utf8(headerKey);
             ByteUtils.writeVarint(utf8Bytes.length, out);
@@ -233,16 +281,27 @@ public class DefaultRecord implements Record {
         return ByteUtils.sizeOfVarint(sizeInBytes) + sizeInBytes;
     }
 
+    /**
+     * 检查是否有magic值
+     * @param magic the magic value to check
+     */
     @Override
     public boolean hasMagic(byte magic) {
         return magic >= MAGIC_VALUE_V2;
     }
 
+    /**
+     * 检查是否压缩
+     */
     @Override
     public boolean isCompressed() {
         return false;
     }
 
+    /**
+     * 检查是否有时间格式
+     * @param timestampType the timestamp type to compare
+     */
     @Override
     public boolean hasTimestampType(TimestampType timestampType) {
         return false;
@@ -259,10 +318,12 @@ public class DefaultRecord implements Record {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o)
+        if (this == o) {
             return true;
-        if (o == null || getClass() != o.getClass())
+        }
+        if (o == null || getClass() != o.getClass()) {
             return false;
+        }
 
         DefaultRecord that = (DefaultRecord) o;
         return sizeInBytes == that.sizeInBytes &&
@@ -288,15 +349,21 @@ public class DefaultRecord implements Record {
         return result;
     }
 
+    /**
+     * 把input转换成DefaultRecord
+     */
     public static DefaultRecord readFrom(DataInput input,
                                          long baseOffset,
                                          long baseTimestamp,
                                          int baseSequence,
                                          Long logAppendTime) throws IOException {
         int sizeOfBodyInBytes = ByteUtils.readVarint(input);
+        // 创建buffer
         ByteBuffer recordBuffer = ByteBuffer.allocate(sizeOfBodyInBytes);
+        // 数据读取到recordBuffer中
         input.readFully(recordBuffer.array(), 0, sizeOfBodyInBytes);
         int totalSizeInBytes = ByteUtils.sizeOfVarint(sizeOfBodyInBytes) + sizeOfBodyInBytes;
+        // 构造DefaultRecord
         return readFrom(recordBuffer, totalSizeInBytes, sizeOfBodyInBytes, baseOffset, baseTimestamp,
                 baseSequence, logAppendTime);
     }
@@ -307,14 +374,18 @@ public class DefaultRecord implements Record {
                                          int baseSequence,
                                          Long logAppendTime) {
         int sizeOfBodyInBytes = ByteUtils.readVarint(buffer);
-        if (buffer.remaining() < sizeOfBodyInBytes)
+        if (buffer.remaining() < sizeOfBodyInBytes) {
             return null;
+        }
 
         int totalSizeInBytes = ByteUtils.sizeOfVarint(sizeOfBodyInBytes) + sizeOfBodyInBytes;
         return readFrom(buffer, totalSizeInBytes, sizeOfBodyInBytes, baseOffset, baseTimestamp,
                 baseSequence, logAppendTime);
     }
 
+    /**
+     * 把buffer构造成DefaultRecord
+     */
     private static DefaultRecord readFrom(ByteBuffer buffer,
                                           int sizeInBytes,
                                           int sizeOfBodyInBytes,
@@ -327,14 +398,15 @@ public class DefaultRecord implements Record {
             byte attributes = buffer.get();
             long timestampDelta = ByteUtils.readVarlong(buffer);
             long timestamp = baseTimestamp + timestampDelta;
-            if (logAppendTime != null)
+            if (logAppendTime != null) {
                 timestamp = logAppendTime;
+            }
 
             int offsetDelta = ByteUtils.readVarint(buffer);
             long offset = baseOffset + offsetDelta;
             int sequence = baseSequence >= 0 ?
                     DefaultRecordBatch.incrementSequence(baseSequence, offsetDelta) :
-                    RecordBatch.NO_SEQUENCE;
+            RecordBatch.NO_SEQUENCE;
 
             ByteBuffer key = null;
             int keySize = ByteUtils.readVarint(buffer);
@@ -353,19 +425,22 @@ public class DefaultRecord implements Record {
             }
 
             int numHeaders = ByteUtils.readVarint(buffer);
-            if (numHeaders < 0)
+            if (numHeaders < 0) {
                 throw new InvalidRecordException("Found invalid number of record headers " + numHeaders);
+            }
 
             final Header[] headers;
-            if (numHeaders == 0)
+            if (numHeaders == 0) {
                 headers = Record.EMPTY_HEADERS;
-            else
+            } else {
                 headers = readHeaders(buffer, numHeaders);
+            }
 
             // validate whether we have read all header bytes in the current record
-            if (buffer.position() - recordStart != sizeOfBodyInBytes)
+            if (buffer.position() - recordStart != sizeOfBodyInBytes) {
                 throw new InvalidRecordException("Invalid record size: expected to read " + sizeOfBodyInBytes +
                         " bytes in record payload, but instead read " + (buffer.position() - recordStart));
+            }
 
             return new DefaultRecord(sizeInBytes, attributes, offset, timestamp, sequence, key, value, headers);
         } catch (BufferUnderflowException | IllegalArgumentException e) {
@@ -373,6 +448,9 @@ public class DefaultRecord implements Record {
         }
     }
 
+    /**
+     * 读取部分
+     */
     public static PartialDefaultRecord readPartiallyFrom(DataInput input,
                                                          byte[] skipArray,
                                                          long baseOffset,
@@ -386,6 +464,9 @@ public class DefaultRecord implements Record {
             baseSequence, logAppendTime);
     }
 
+    /**
+     * 把input转换成成PartialDefaultRecord
+     */
     private static PartialDefaultRecord readPartiallyFrom(DataInput input,
                                                           byte[] skipArray,
                                                           int sizeInBytes,
@@ -406,8 +487,9 @@ public class DefaultRecord implements Record {
             byte attributes = readByte(skipBuffer, input, bytesRemaining);
             long timestampDelta = readVarLong(skipBuffer, input, bytesRemaining);
             long timestamp = baseTimestamp + timestampDelta;
-            if (logAppendTime != null)
+            if (logAppendTime != null) {
                 timestamp = logAppendTime;
+            }
 
             int offsetDelta = readVarInt(skipBuffer, input, bytesRemaining);
             long offset = baseOffset + offsetDelta;
@@ -423,20 +505,23 @@ public class DefaultRecord implements Record {
 
             // then skip header
             int numHeaders = readVarInt(skipBuffer, input, bytesRemaining);
-            if (numHeaders < 0)
+            if (numHeaders < 0) {
                 throw new InvalidRecordException("Found invalid number of record headers " + numHeaders);
+            }
             for (int i = 0; i < numHeaders; i++) {
                 int headerKeySize = skipLengthDelimitedField(skipBuffer, input, bytesRemaining);
-                if (headerKeySize < 0)
+                if (headerKeySize < 0) {
                     throw new InvalidRecordException("Invalid negative header key size " + headerKeySize);
+                }
 
                 // headerValueSize
                 skipLengthDelimitedField(skipBuffer, input, bytesRemaining);
             }
 
-            if (bytesRemaining.value > 0 || skipBuffer.remaining() > 0)
+            if (bytesRemaining.value > 0 || skipBuffer.remaining() > 0) {
                 throw new InvalidRecordException("Invalid record size: expected to read " + sizeOfBodyInBytes +
                     " bytes in record payload, but there are still bytes remaining");
+            }
 
             return new PartialDefaultRecord(sizeInBytes, attributes, offset, timestamp, sequence, keySize, valueSize);
         } catch (BufferUnderflowException | IllegalArgumentException e) {
@@ -444,22 +529,29 @@ public class DefaultRecord implements Record {
         }
     }
 
+    /**
+     * 从buffer中获取byte
+     */
     private static byte readByte(ByteBuffer buffer, DataInput input, IntRef bytesRemaining) throws IOException {
         if (buffer.remaining() < 1 && bytesRemaining.value > 0) {
             readMore(buffer, input, bytesRemaining);
         }
-
         return buffer.get();
     }
 
+    /**
+     * 从buffer中获取long
+     */
     private static long readVarLong(ByteBuffer buffer, DataInput input, IntRef bytesRemaining) throws IOException {
         if (buffer.remaining() < 10 && bytesRemaining.value > 0) {
             readMore(buffer, input, bytesRemaining);
         }
-
         return ByteUtils.readVarlong(buffer);
     }
 
+    /**
+     * 从buffer中获取int
+     */
     private static int readVarInt(ByteBuffer buffer, DataInput input, IntRef bytesRemaining) throws IOException {
         if (buffer.remaining() < 5 && bytesRemaining.value > 0) {
             readMore(buffer, input, bytesRemaining);
@@ -484,10 +576,11 @@ public class DefaultRecord implements Record {
                     needMore = true;
                 } else {
                     sizeInBytes = ByteUtils.readVarint(buffer);
-                    if (sizeInBytes <= 0)
+                    if (sizeInBytes <= 0) {
                         return sizeInBytes;
-                    else
+                    } else {
                         bytesToSkip = sizeInBytes;
+                    }
 
                 }
             } else {
@@ -528,12 +621,19 @@ public class DefaultRecord implements Record {
         }
     }
 
+    /**
+     * 获取headers
+     * @param buffer
+     * @param numHeaders
+     * @return
+     */
     private static Header[] readHeaders(ByteBuffer buffer, int numHeaders) {
         Header[] headers = new Header[numHeaders];
         for (int i = 0; i < numHeaders; i++) {
             int headerKeySize = ByteUtils.readVarint(buffer);
-            if (headerKeySize < 0)
+            if (headerKeySize < 0) {
                 throw new InvalidRecordException("Invalid negative header key size " + headerKeySize);
+            }
 
             ByteBuffer headerKeyBuffer = buffer.slice();
             headerKeyBuffer.limit(headerKeySize);
@@ -594,26 +694,33 @@ public class DefaultRecord implements Record {
         return size;
     }
 
+    /**
+     * 获取key,value,headers累加长度
+     */
     private static int sizeOf(int keySize, int valueSize, Header[] headers) {
         int size = 0;
-        if (keySize < 0)
+        if (keySize < 0) {
             size += NULL_VARINT_SIZE_BYTES;
-        else
+        } else {
             size += ByteUtils.sizeOfVarint(keySize) + keySize;
+        }
 
-        if (valueSize < 0)
+        if (valueSize < 0) {
             size += NULL_VARINT_SIZE_BYTES;
-        else
+        } else {
             size += ByteUtils.sizeOfVarint(valueSize) + valueSize;
+        }
 
-        if (headers == null)
+        if (headers == null) {
             throw new IllegalArgumentException("Headers cannot be null");
+        }
 
         size += ByteUtils.sizeOfVarint(headers.length);
         for (Header header : headers) {
             String headerKey = header.key();
-            if (headerKey == null)
+            if (headerKey == null) {
                 throw new IllegalArgumentException("Invalid null header key found in headers");
+            }
 
             int headerKeySize = Utils.utf8Length(headerKey);
             size += ByteUtils.sizeOfVarint(headerKeySize) + headerKeySize;
@@ -634,7 +741,9 @@ public class DefaultRecord implements Record {
         return MAX_RECORD_OVERHEAD + sizeOf(keySize, valueSize, headers);
     }
 
-
+    /**
+     * 计算checksum
+     */
     public static long computePartialChecksum(long timestamp, int serializedKeySize, int serializedValueSize) {
         Checksum checksum = Crc32C.create();
         Checksums.updateLong(checksum, timestamp);
