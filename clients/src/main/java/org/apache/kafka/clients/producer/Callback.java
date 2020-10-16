@@ -17,12 +17,16 @@
 package org.apache.kafka.clients.producer;
 
 /**
+ * 请求完成之后的回调接口，
  * A callback interface that the user can implement to allow code to execute when the request is complete. This callback
  * will generally execute in the background I/O thread so it should be fast.
  */
 public interface Callback {
 
     /**
+     * 用户可以实现的回调方法来提供对请求完成的异步处理。当发送到服务器的记录得到确认后，将调用此方法。
+     * 当exception在回调中不为null时，元数据将包含除topicPartition之外的所有字段的特殊-1值，该值将是有效的。
+     *
      * A callback method the user can implement to provide asynchronous handling of request completion. This method will
      * be called when the record sent to the server has been acknowledged. When exception is not null in the callback,
      * metadata will contain the special -1 value for all fields except for topicPartition, which will be valid.
