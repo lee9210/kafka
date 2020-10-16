@@ -21,8 +21,12 @@ import java.util.Map;
 import org.apache.kafka.clients.producer.internals.StickyPartitionCache;
 import org.apache.kafka.common.Cluster;
 
-
 /**
+ *
+ * 主要是为了在无key的情况下，通过随机发送到不同的partition中，构成的batch会更平衡
+ * 分区策略是：
+ * 1. 如果在record中指定了分区，则使用此分区
+ * 2. 否则使用sticky partition指定,主要是增加到上次发送的batch中
  * The partitioning strategy:
  * <ul>
  * <li>If a partition is specified in the record, use it
@@ -35,11 +39,14 @@ import org.apache.kafka.common.Cluster;
  */
 public class UniformStickyPartitioner implements Partitioner {
 
+    /** 分区发送缓存 */
     private final StickyPartitionCache stickyPartitionCache = new StickyPartitionCache();
 
+    @Override
     public void configure(Map<String, ?> configs) {}
 
     /**
+     * 获取分区
      * Compute the partition for the given record.
      *
      * @param topic The topic name
@@ -49,17 +56,24 @@ public class UniformStickyPartitioner implements Partitioner {
      * @param valueBytes serialized value to partition on or null
      * @param cluster The current cluster metadata
      */
+    @Override
     public int partition(String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
         return stickyPartitionCache.partition(topic, cluster);
     }
 
+    @Override
     public void close() {}
     
     /**
-     * If a batch completed for the current sticky partition, change the sticky partition. 
+     * 如果当前粘分区的batch完成，则更改粘分区。
+     * 或者，如果没有确定粘分区，则随机设置一个。
+     *
+     * If a batch completed for the current sticky partition, change the sticky partition.
      * Alternately, if no sticky partition has been determined, set one.
      */
+    @Override
     public void onNewBatch(String topic, Cluster cluster, int prevPartition) {
+        // 设置新的分区
         stickyPartitionCache.nextPartition(topic, cluster, prevPartition);
     }
 }
