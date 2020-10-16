@@ -18,16 +18,25 @@ package org.apache.kafka.common.record;
 
 
 abstract class AbstractRecordBatch implements RecordBatch {
+    /**
+     * 检查是否有produceId
+     */
     @Override
     public boolean hasProducerId() {
         return RecordBatch.NO_PRODUCER_ID < producerId();
     }
 
+    /**
+     * 获取该record batch之后的偏移量(即该批处理中包含的最后一个偏移量加上一个)。
+     */
     @Override
     public long nextOffset() {
         return lastOffset() + 1;
     }
 
+    /**
+     * 检查此record batch是否被压缩。
+     */
     @Override
     public boolean isCompressed() {
         return compressionType() != CompressionType.NONE;
