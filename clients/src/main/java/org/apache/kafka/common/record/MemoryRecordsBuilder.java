@@ -33,6 +33,10 @@ import java.nio.ByteBuffer;
 import static org.apache.kafka.common.utils.Utils.wrapNullable;
 
 /**
+ * 这个类用于在内存中写入新的log数据，也就是说，这是{@link MemoryRecords}的写入路径，它透明地处理压缩并公开添加新记录的方法，可能还包括消息格式转换。
+ * 在保持低内存保留率很重要的情况下，在记录追加停止和构建器关闭(例如生成器)之间有一个时间间隔，当前者发生时，调用“closeForRecordAppends”是很重要的。
+ * 这将释放压缩缓冲区等资源，这些资源可能比较大(LZ4为64 KB)。
+ *
  * This class is used to write new log data in memory, i.e. this is the write path for {@link MemoryRecords}.
  * It transparently handles compression and exposes methods for appending new records, possibly with message
  * format conversion.
@@ -42,7 +46,9 @@ import static org.apache.kafka.common.utils.Utils.wrapNullable;
  * This will release resources like compression buffers that can be relatively large (64 KB for LZ4).
  */
 public class MemoryRecordsBuilder implements AutoCloseable {
+    /** 压缩率估计因子 */
     private static final float COMPRESSION_RATE_ESTIMATION_FACTOR = 1.05f;
+    /** 关闭写入 */
     private static final DataOutputStream CLOSED_STREAM = new DataOutputStream(new OutputStream() {
         @Override
         public void write(int b) {
@@ -50,36 +56,52 @@ public class MemoryRecordsBuilder implements AutoCloseable {
         }
     });
 
+    /** 时间格式 */
     private final TimestampType timestampType;
+    /** 压缩方式 */
     private final CompressionType compressionType;
     // Used to hold a reference to the underlying ByteBuffer so that we can write the record batch header and access
     // the written bytes. ByteBufferOutputStream allocates a new ByteBuffer if the existing one is not large enough,
     // so it's not safe to hold a direct reference to the underlying ByteBuffer.
+    // 用于保存对底层ByteBuffer的引用，以便我们可以写入记录批处理头并访问写入的字节。如果现有的字节缓冲区不够大，ByteBufferOutputStream将分配一个新的字节缓冲区，因此保存对底层字节缓冲区的直接引用是不安全的。
     private final ByteBufferOutputStream bufferStream;
     private final byte magic;
+    /** 初始offset */
     private final int initialPosition;
     private final long baseOffset;
     private final long logAppendTime;
     private final boolean isControlBatch;
+    /** partition leader 代数 */
     private final int partitionLeaderEpoch;
     private final int writeLimit;
     private final int batchHeaderSizeInBytes;
 
     // Use a conservative estimate of the compression ratio. The producer overrides this using statistics
     // from previous batches before appending any records.
+    // 使用压缩比的保守估计。在附加任何记录之前，生产者使用来自前一批的统计信息覆盖此数据。
+    /** 估计的压缩比 */
     private float estimatedCompressionRatio = 1.0F;
 
     // Used to append records, may compress data on the fly
     private DataOutputStream appendStream;
+    /** 是否是事务 */
     private boolean isTransactional;
+    /** 创建者id */
     private long producerId;
+    /** 创建者代数 */
     private short producerEpoch;
     private int baseSequence;
-    private int uncompressedRecordsSizeInBytes = 0; // Number of bytes (excluding the header) written before compression
+    // Number of bytes (excluding the header) written before compression
+    /** 压缩前写入的字节数(不包括header) */
+    private int uncompressedRecordsSizeInBytes = 0;
+    /** record数量 */
     private int numRecords = 0;
+    /** 实际压缩比 */
     private float actualCompressionRatio = 1;
+    /** 时间格式 */
     private long maxTimestamp = RecordBatch.NO_TIMESTAMP;
     private long offsetOfMaxTimestamp = -1;
+    /** 最后一条消息的offset */
     private Long lastOffset = null;
     private Long firstTimestamp = null;
 
@@ -99,15 +121,20 @@ public class MemoryRecordsBuilder implements AutoCloseable {
                                 boolean isControlBatch,
                                 int partitionLeaderEpoch,
                                 int writeLimit) {
-        if (magic > RecordBatch.MAGIC_VALUE_V0 && timestampType == TimestampType.NO_TIMESTAMP_TYPE)
+        // 验证magic和timestampType
+        if (magic > RecordBatch.MAGIC_VALUE_V0 && timestampType == TimestampType.NO_TIMESTAMP_TYPE) {
             throw new IllegalArgumentException("TimestampType must be set for magic >= 0");
+        }
         if (magic < RecordBatch.MAGIC_VALUE_V2) {
-            if (isTransactional)
+            if (isTransactional) {
                 throw new IllegalArgumentException("Transactional records are not supported for magic " + magic);
-            if (isControlBatch)
+            }
+            if (isControlBatch) {
                 throw new IllegalArgumentException("Control records are not supported for magic " + magic);
-            if (compressionType == CompressionType.ZSTD)
+            }
+            if (compressionType == CompressionType.ZSTD) {
                 throw new IllegalArgumentException("ZStandard compression is not supported for magic " + magic);
+            }
         }
 
         this.magic = magic;
@@ -197,6 +224,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 关闭此构建器并返回生成的缓冲区。
+     *
      * Close this builder and return the resulting buffer.
      * @return The built log buffer
      */
@@ -209,6 +238,10 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 获取最大时间戳及其偏移量。返回的偏移量的细节有点微妙。
+     * 如果使用了日志追加时间，则偏移量将是最后一个偏移量，除非没有使用压缩并且消息格式版本为0或1，在这种情况下，它将是第一个偏移量。
+     * 如果使用了创建时间，则偏移量将是最后一个偏移量，除非没有使用压缩并且消息格式版本为0或1，在这种情况下，它将是具有最大时间戳的记录的偏移量。
+     *
      * Get the max timestamp and its offset. The details of the offset returned are a bit subtle.
      *
      * If the log append time is used, the offset will be the last offset unless no compression is used and
@@ -220,23 +253,32 @@ public class MemoryRecordsBuilder implements AutoCloseable {
      * @return The max timestamp and its offset
      */
     public RecordsInfo info() {
+        // 如果时间格式是日志追加事件格式
         if (timestampType == TimestampType.LOG_APPEND_TIME) {
             long shallowOffsetOfMaxTimestamp;
             // Use the last offset when dealing with record batches
-            if (compressionType != CompressionType.NONE || magic >= RecordBatch.MAGIC_VALUE_V2)
+            // 如果压缩过，并且magic为2及以上，使用最后一个偏移量
+            if (compressionType != CompressionType.NONE || magic >= RecordBatch.MAGIC_VALUE_V2) {
                 shallowOffsetOfMaxTimestamp = lastOffset;
-            else
+            // 否则使用初始偏移量
+            } else {
                 shallowOffsetOfMaxTimestamp = baseOffset;
+            }
+            // 构造RecordsInfo返回
             return new RecordsInfo(logAppendTime, shallowOffsetOfMaxTimestamp);
+        // 如果时间格式不存在，则直接使用最后一个偏移量
         } else if (maxTimestamp == RecordBatch.NO_TIMESTAMP) {
             return new RecordsInfo(RecordBatch.NO_TIMESTAMP, lastOffset);
         } else {
             long shallowOffsetOfMaxTimestamp;
             // Use the last offset when dealing with record batches
-            if (compressionType != CompressionType.NONE || magic >= RecordBatch.MAGIC_VALUE_V2)
+            // 如果没压缩过，并且magic为2及以上，使用最后一个偏移量
+            if (compressionType != CompressionType.NONE || magic >= RecordBatch.MAGIC_VALUE_V2) {
                 shallowOffsetOfMaxTimestamp = lastOffset;
-            else
+            // 否则使用最后的偏移量
+            } else {
                 shallowOffsetOfMaxTimestamp = offsetOfMaxTimestamp;
+            }
             return new RecordsInfo(maxTimestamp, shallowOffsetOfMaxTimestamp);
         }
     }
@@ -246,12 +288,20 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 返回batch header(总是未压缩的)和records(压缩前)的大小之和。
      * Return the sum of the size of the batch header (always uncompressed) and the records (before compression).
      */
     public int uncompressedBytesWritten() {
         return uncompressedRecordsSizeInBytes + batchHeaderSizeInBytes;
     }
 
+    /**
+     * 设置producer状态
+     * @param producerId
+     * @param producerEpoch
+     * @param baseSequence
+     * @param isTransactional
+     */
     public void setProducerState(long producerId, short producerEpoch, int baseSequence, boolean isTransactional) {
         if (isClosed()) {
             // Sequence numbers are assigned when the batch is closed while the accumulator is being drained.
@@ -266,13 +316,21 @@ public class MemoryRecordsBuilder implements AutoCloseable {
         this.isTransactional = isTransactional;
     }
 
+    /**
+     * 设置lastOffset
+     * @param lastOffset
+     */
     public void overrideLastOffset(long lastOffset) {
-        if (builtRecords != null)
+        if (builtRecords != null) {
             throw new IllegalStateException("Cannot override the last offset after the records have been built");
+        }
         this.lastOffset = lastOffset;
     }
 
     /**
+     * 释放记录追加所需的资源(例如压缩缓冲区)。
+     * 调用此方法后，只能更新 RecordBatch header。
+     *
      * Release resources required for record appends (e.g. compression buffers). Once this method is called, it's only
      * possible to update the RecordBatch header.
      */
@@ -288,15 +346,22 @@ public class MemoryRecordsBuilder implements AutoCloseable {
         }
     }
 
+    /**
+     * 设置此builder阻塞
+     */
     public void abort() {
         closeForRecordAppends();
         buffer().position(initialPosition);
         aborted = true;
     }
 
+    /**
+     * 重新打开并且设置可重新写
+     */
     public void reopenAndRewriteProducerState(long producerId, short producerEpoch, int baseSequence, boolean isTransactional) {
-        if (aborted)
+        if (aborted) {
             throw new IllegalStateException("Should not reopen a batch which is already aborted.");
+        }
         builtRecords = null;
         this.producerId = producerId;
         this.producerEpoch = producerEpoch;
@@ -304,26 +369,34 @@ public class MemoryRecordsBuilder implements AutoCloseable {
         this.isTransactional = isTransactional;
     }
 
-
+    /**
+     * 关闭此builder
+     */
+    @Override
     public void close() {
-        if (aborted)
+        // 如果已经阻塞，则抛出异常
+        if (aborted) {
             throw new IllegalStateException("Cannot close MemoryRecordsBuilder as it has already been aborted");
+        }
 
-        if (builtRecords != null)
+        // 如果已经存在，则直接返回
+        if (builtRecords != null) {
             return;
-
+        }
+        // 验证producer状态
         validateProducerState();
-
+        // 释放底层资源
         closeForRecordAppends();
-
+        // 如果记录为空
         if (numRecords == 0L) {
             buffer().position(initialPosition);
             builtRecords = MemoryRecords.EMPTY;
         } else {
-            if (magic > RecordBatch.MAGIC_VALUE_V1)
+            if (magic > RecordBatch.MAGIC_VALUE_V1) {
                 this.actualCompressionRatio = (float) writeDefaultBatchHeader() / this.uncompressedRecordsSizeInBytes;
-            else if (compressionType != CompressionType.NONE)
+            } else if (compressionType != CompressionType.NONE) {
                 this.actualCompressionRatio = (float) writeLegacyCompressedWrapperHeader() / this.uncompressedRecordsSizeInBytes;
+            }
 
             ByteBuffer buffer = buffer().duplicate();
             buffer.flip();
@@ -332,19 +405,27 @@ public class MemoryRecordsBuilder implements AutoCloseable {
         }
     }
 
+    /**
+     * 验证producer状态
+     */
     private void validateProducerState() {
-        if (isTransactional && producerId == RecordBatch.NO_PRODUCER_ID)
+        // 如果是事务，并且没有producerId,直接抛出异常
+        if (isTransactional && producerId == RecordBatch.NO_PRODUCER_ID) {
             throw new IllegalArgumentException("Cannot write transactional messages without a valid producer ID");
-
+        }
+        // 如果没有设置producerId
         if (producerId != RecordBatch.NO_PRODUCER_ID) {
-            if (producerEpoch == RecordBatch.NO_PRODUCER_EPOCH)
+            if (producerEpoch == RecordBatch.NO_PRODUCER_EPOCH) {
                 throw new IllegalArgumentException("Invalid negative producer epoch");
+            }
 
-            if (baseSequence < 0 && !isControlBatch)
+            if (baseSequence < 0 && !isControlBatch) {
                 throw new IllegalArgumentException("Invalid negative sequence number used");
+            }
 
-            if (magic < RecordBatch.MAGIC_VALUE_V2)
+            if (magic < RecordBatch.MAGIC_VALUE_V2) {
                 throw new IllegalArgumentException("Idempotent messages are not supported for magic " + magic);
+            }
         }
     }
 
@@ -362,10 +443,11 @@ public class MemoryRecordsBuilder implements AutoCloseable {
         int offsetDelta = (int) (lastOffset - baseOffset);
 
         final long maxTimestamp;
-        if (timestampType == TimestampType.LOG_APPEND_TIME)
+        if (timestampType == TimestampType.LOG_APPEND_TIME) {
             maxTimestamp = logAppendTime;
-        else
+        } else {
             maxTimestamp = this.maxTimestamp;
+        }
 
         DefaultRecordBatch.writeHeader(buffer, baseOffset, offsetDelta, size, magic, compressionType, timestampType,
                 firstTimestamp, maxTimestamp, producerId, producerEpoch, baseSequence, isTransactional, isControlBatch,
@@ -376,6 +458,7 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 将header写入到records中，返回压缩后的字节数
      * Write the header to the legacy batch.
      * @return the written compressed bytes.
      */
@@ -397,26 +480,32 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 对版本为0或1追加一条记录并返回其checksum，对版本2及以上格式返回null。
      * Append a record and return its checksum for message format v0 and v1, or null for v2 and above.
      */
     private Long appendWithOffset(long offset, boolean isControlRecord, long timestamp, ByteBuffer key,
                                   ByteBuffer value, Header[] headers) {
         try {
-            if (isControlRecord != isControlBatch)
+            if (isControlRecord != isControlBatch) {
                 throw new IllegalArgumentException("Control records can only be appended to control batches");
+            }
 
-            if (lastOffset != null && offset <= lastOffset)
+            if (lastOffset != null && offset <= lastOffset) {
                 throw new IllegalArgumentException(String.format("Illegal offset %s following previous offset %s " +
                         "(Offsets must increase monotonically).", offset, lastOffset));
+            }
 
-            if (timestamp < 0 && timestamp != RecordBatch.NO_TIMESTAMP)
+            if (timestamp < 0 && timestamp != RecordBatch.NO_TIMESTAMP) {
                 throw new IllegalArgumentException("Invalid negative timestamp " + timestamp);
+            }
 
-            if (magic < RecordBatch.MAGIC_VALUE_V2 && headers != null && headers.length > 0)
+            if (magic < RecordBatch.MAGIC_VALUE_V2 && headers != null && headers.length > 0) {
                 throw new IllegalArgumentException("Magic v" + magic + " does not support record headers");
+            }
 
-            if (firstTimestamp == null)
+            if (firstTimestamp == null) {
                 firstTimestamp = timestamp;
+            }
 
             if (magic > RecordBatch.MAGIC_VALUE_V1) {
                 appendDefaultRecord(offset, timestamp, key, value, headers);
@@ -430,6 +519,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 在给定的偏移位置追加一个新record。
+     *
      * Append a new record at the given offset.
      * @param offset The absolute offset of the record in the log buffer
      * @param timestamp The record timestamp
@@ -443,6 +534,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 在给定的偏移位置追加一个新record。
+     *
      * Append a new record at the given offset.
      * @param offset The absolute offset of the record in the log buffer
      * @param timestamp The record timestamp
@@ -456,6 +549,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 在给定的偏移位置追加一个新record。
+     *
      * Append a new record at the given offset.
      * @param offset The absolute offset of the record in the log buffer
      * @param timestamp The record timestamp
@@ -468,6 +563,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 在给定的偏移位置追加一个新record。
+     *
      * Append a new record at the given offset.
      * @param offset The absolute offset of the record in the log buffer
      * @param timestamp The record timestamp
@@ -480,6 +577,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 在给定的偏移位置追加一个新record。
+     *
      * Append a new record at the given offset.
      * @param offset The absolute offset of the record in the log buffer
      * @param record The record to append
@@ -490,6 +589,9 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 在给定的偏移位置追加一个控制记录。
+     * 控制记录类型必须是已知的，否则此方法将引发错误。
+     *
      * Append a control record at the given offset. The control record type must be known or
      * this method will raise an error.
      *
@@ -500,14 +602,17 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     public Long appendControlRecordWithOffset(long offset, SimpleRecord record) {
         short typeId = ControlRecordType.parseTypeId(record.key());
         ControlRecordType type = ControlRecordType.fromTypeId(typeId);
-        if (type == ControlRecordType.UNKNOWN)
+        if (type == ControlRecordType.UNKNOWN) {
             throw new IllegalArgumentException("Cannot append record with unknown control record type " + typeId);
+        }
 
         return appendWithOffset(offset, true, record.timestamp(),
             record.key(), record.value(), record.headers());
     }
 
     /**
+     * 在下一个连续偏移处追加一个新record。
+     *
      * Append a new record at the next sequential offset.
      * @param timestamp The record timestamp
      * @param key The record key
@@ -519,6 +624,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 在下一个连续偏移处追加一个新record。
+     *
      * Append a new record at the next sequential offset.
      * @param timestamp The record timestamp
      * @param key The record key
@@ -531,6 +638,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 在下一个连续偏移处追加一个新record。
+     *
      * Append a new record at the next sequential offset.
      * @param timestamp The record timestamp
      * @param key The record key
@@ -542,6 +651,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 在下一个连续偏移处追加一个新record。
+     *
      * Append a new record at the next sequential offset.
      * @param timestamp The record timestamp
      * @param key The record key
@@ -554,6 +665,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 在下一个连续偏移处追加一个新record。
+     *
      * Append a new record at the next sequential offset.
      * @param record The record to append
      * @return CRC of the record or null if record-level CRC is not supported for the message format
@@ -563,6 +676,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 在下一个顺序偏移处追加一个control record。
+     *
      * Append a control record at the next sequential offset.
      * @param timestamp The record timestamp
      * @param type The control record type (cannot be UNKNOWN)
@@ -578,18 +693,24 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 如果不支持消息格式,则返回记录或null的CRC值
+     *
      * Return CRC of the record or null if record-level CRC is not supported for the message format
      */
     public Long appendEndTxnMarker(long timestamp, EndTransactionMarker marker) {
-        if (producerId == RecordBatch.NO_PRODUCER_ID)
+        if (producerId == RecordBatch.NO_PRODUCER_ID) {
             throw new IllegalArgumentException("End transaction marker requires a valid producerId");
-        if (!isTransactional)
+        }
+        if (!isTransactional) {
             throw new IllegalArgumentException("End transaction marker depends on batch transactional flag being enabled");
+        }
         ByteBuffer value = marker.serializeValue();
         return appendControlRecord(timestamp, marker.controlType(), value);
     }
 
     /**
+     * 如果不支持消息格式,则返回记录或null的CRC
+     *
      * Return CRC of the record or null if record-level CRC is not supported for the message format
      */
     public Long appendLeaderChangeMessage(long timestamp, LeaderChangeMessage leaderChangeMessage) {
@@ -607,6 +728,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 添加一个粘粘record而不做offset/magic验证(这应该只在测试中使用)。
+     *
      * Add a legacy record without doing offset/magic validation (this should only be used in testing).
      * @param offset The offset of the record
      * @param record The record to add
@@ -627,6 +750,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 添加一个粘粘record而不做offset/magic验证(这应该只在测试中使用)。
+     *
      * Append a record without doing offset/magic validation (this should only be used in testing).
      *
      * @param offset The offset of the record
@@ -636,8 +761,9 @@ public class MemoryRecordsBuilder implements AutoCloseable {
         if (magic >= RecordBatch.MAGIC_VALUE_V2) {
             int offsetDelta = (int) (offset - baseOffset);
             long timestamp = record.timestamp();
-            if (firstTimestamp == null)
+            if (firstTimestamp == null) {
                 firstTimestamp = timestamp;
+            }
 
             int sizeInBytes = DefaultRecord.writeTo(appendStream,
                 offsetDelta,
@@ -656,6 +782,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 在下一个连续偏移处追加一条record。
+     *
      * Append a record at the next sequential offset.
      * @param record the record to add
      */
@@ -664,6 +792,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 使用不同的偏移量追加record
+     *
      * Append a log record using a different offset
      * @param offset The offset of the record
      * @param record The record to add
@@ -673,6 +803,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 添加一个具有给定偏移量的记录。这个记录必须有一个与用来构造这个构建器的magic相匹配的magic，并且偏移量必须大于最后一个附加的记录。
+     *
      * Add a record with a given offset. The record must have a magic which matches the magic use to
      * construct this builder and the offset must be greater than the last appended record.
      * @param offset The offset of the record
@@ -683,6 +815,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 将记录追加到下一个连续偏移量。如果还没有附加任何record，则使用此构建器的基偏移量。
+     *
      * Append the record at the next consecutive offset. If no records have been appended yet, use the base
      * offset of this builder.
      * @param record The record to add
@@ -702,14 +836,16 @@ public class MemoryRecordsBuilder implements AutoCloseable {
 
     private long appendLegacyRecord(long offset, long timestamp, ByteBuffer key, ByteBuffer value, byte magic) throws IOException {
         ensureOpenForRecordAppend();
-        if (compressionType == CompressionType.NONE && timestampType == TimestampType.LOG_APPEND_TIME)
+        if (compressionType == CompressionType.NONE && timestampType == TimestampType.LOG_APPEND_TIME) {
             timestamp = logAppendTime;
+        }
 
         int size = LegacyRecord.recordSize(magic, key, value);
         AbstractLegacyRecordBatch.writeHeader(appendStream, toInnerOffset(offset), size);
 
-        if (timestampType == TimestampType.LOG_APPEND_TIME)
+        if (timestampType == TimestampType.LOG_APPEND_TIME) {
             timestamp = logAppendTime;
+        }
         long crc = LegacyRecord.write(appendStream, magic, timestamp, key, value, CompressionType.NONE, timestampType);
         recordWritten(offset, timestamp, size + Records.LOG_OVERHEAD);
         return crc;
@@ -717,17 +853,20 @@ public class MemoryRecordsBuilder implements AutoCloseable {
 
     private long toInnerOffset(long offset) {
         // use relative offsets for compressed messages with magic v1
-        if (magic > 0 && compressionType != CompressionType.NONE)
+        if (magic > 0 && compressionType != CompressionType.NONE) {
             return offset - baseOffset;
+        }
         return offset;
     }
 
     private void recordWritten(long offset, long timestamp, int size) {
-        if (numRecords == Integer.MAX_VALUE)
+        if (numRecords == Integer.MAX_VALUE) {
             throw new IllegalArgumentException("Maximum number of records per batch exceeded, max records: " + Integer.MAX_VALUE);
-        if (offset - baseOffset > Integer.MAX_VALUE)
+        }
+        if (offset - baseOffset > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("Maximum offset delta exceeded, base offset: " + baseOffset +
                     ", last offset: " + offset);
+        }
 
         numRecords += 1;
         uncompressedRecordsSizeInBytes += size;
@@ -740,18 +879,23 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     private void ensureOpenForRecordAppend() {
-        if (appendStream == CLOSED_STREAM)
+        if (appendStream == CLOSED_STREAM) {
             throw new IllegalStateException("Tried to append a record, but MemoryRecordsBuilder is closed for record appends");
+        }
     }
 
     private void ensureOpenForRecordBatchWrite() {
-        if (isClosed())
+        if (isClosed()) {
             throw new IllegalStateException("Tried to write record batch header, but MemoryRecordsBuilder is closed");
-        if (aborted)
+        }
+        if (aborted) {
             throw new IllegalStateException("Tried to write record batch header, but MemoryRecordsBuilder is aborted");
+        }
     }
 
     /**
+     * 获得写入的字节数的估计(基于硬编码在{@link CompressionType}中的估计因子)
+     *
      * Get an estimate of the number of bytes written (based on the estimation factor hard-coded in {@link CompressionType}.
      * @return The estimated number of bytes written
      */
@@ -765,6 +909,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 为内存记录生成器设置估计的压缩比。
+     *
      * Set the estimated compression ratio for the memory records builder.
      */
     public void setEstimatedCompressionRatio(float estimatedCompressionRatio) {
@@ -772,6 +918,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 检查是否为包含给定键/值对的新记录留有空间。如果没有添加任何记录，则返回true。
+     *
      * Check if we have room for a new record containing the given key/value pair. If no records have been
      * appended, then this returns true.
      */
@@ -780,6 +928,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 检查是否为包含给定键/值对的新记录留有空间。如果没有添加任何记录，则返回true。
+     *
      * Check if we have room for a new record containing the given key/value pair. If no records have been
      * appended, then this returns true.
      *
@@ -788,12 +938,14 @@ public class MemoryRecordsBuilder implements AutoCloseable {
      * re-allocation in the underlying byte buffer stream.
      */
     public boolean hasRoomFor(long timestamp, ByteBuffer key, ByteBuffer value, Header[] headers) {
-        if (isFull())
+        if (isFull()) {
             return false;
+        }
 
         // We always allow at least one record to be appended (the ByteBufferOutputStream will grow as needed)
-        if (numRecords == 0)
+        if (numRecords == 0) {
             return true;
+        }
 
         final int recordSize;
         if (magic < RecordBatch.MAGIC_VALUE_V2) {
@@ -819,6 +971,8 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 获取写入底层缓冲区的字节数的估计值。如果记录集没有被压缩或者构建器已经被关闭，那么返回的值是完全正确的。
+     *
      * Get an estimate of the number of bytes written to the underlying buffer. The returned value
      * is exactly correct if the record set is not compressed or if the builder has been closed.
      */
@@ -834,6 +988,9 @@ public class MemoryRecordsBuilder implements AutoCloseable {
         return lastOffset == null ? baseOffset : lastOffset + 1;
     }
 
+    /**
+     * 消息格式封装
+     */
     public static class RecordsInfo {
         public final long maxTimestamp;
         public final long shallowOffsetOfMaxTimestamp;
