@@ -19,6 +19,7 @@ package org.apache.kafka.common;
 import java.util.Objects;
 
 /**
+ * 表示集群中的一个节点，Node记录这个节点的host.ip.port等信息
  * Information about a Kafka node
  */
 public class Node {
@@ -119,10 +120,12 @@ public class Node {
 
     @Override
     public boolean equals(Object obj) {
-        if (this == obj)
+        if (this == obj) {
             return true;
-        if (obj == null || getClass() != obj.getClass())
+        }
+        if (obj == null || getClass() != obj.getClass()) {
             return false;
+        }
         Node other = (Node) obj;
         return id == other.id &&
             port == other.port &&
