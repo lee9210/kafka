@@ -29,6 +29,8 @@ import java.io.Closeable;
 import java.util.List;
 
 /**
+ * ProducerInterceptor的保存list
+ *
  * A container that holds the list {@link org.apache.kafka.clients.producer.ProducerInterceptor}
  * and wraps calls to the chain of custom interceptors.
  */
@@ -41,6 +43,10 @@ public class ProducerInterceptors<K, V> implements Closeable {
     }
 
     /**
+     *
+     * 当客户端将记录发送到KafkaProducer时，在key和value被序列化之前调用。
+     * 此方法调用{@link ProducerInterceptor#onSend(ProducerRecord)}
+     * 主要是在调用producer.send的时候调用此interceptor链
      * This is called when client sends the record to KafkaProducer, before key and value gets serialized.
      * The method calls {@link ProducerInterceptor#onSend(ProducerRecord)} method. ProducerRecord
      * returned from the first interceptor's onSend() is passed to the second interceptor onSend(), and so on in the
@@ -62,16 +68,19 @@ public class ProducerInterceptors<K, V> implements Closeable {
             } catch (Exception e) {
                 // do not propagate interceptor exception, log and continue calling other interceptors
                 // be careful not to throw exception from here
-                if (record != null)
+                if (record != null) {
                     log.warn("Error executing interceptor onSend callback for topic: {}, partition: {}", record.topic(), record.partition(), e);
-                else
+                } else {
                     log.warn("Error executing interceptor onSend callback", e);
+                }
             }
         }
         return interceptRecord;
     }
 
     /**
+     * 当已确认发送到服务器的记录时，或在发送到服务器之前记录失败时，将调用此方法
+     *
      * This method is called when the record sent to the server has been acknowledged, or when sending the record fails before
      * it gets sent to the server. This method calls {@link ProducerInterceptor#onAcknowledgement(RecordMetadata, Exception)}
      * method for each interceptor.
@@ -94,6 +103,7 @@ public class ProducerInterceptors<K, V> implements Closeable {
     }
 
     /**
+     * 此方法是在{@link ProducerInterceptor#onSend(ProducerRecord)}函数返回错误时调用，主要调用每个interceptor的exception
      * This method is called when sending the record fails in {@link ProducerInterceptor#onSend
      * (ProducerRecord)} method. This method calls {@link ProducerInterceptor#onAcknowledgement(RecordMetadata, Exception)}
      * method for each interceptor
@@ -124,6 +134,7 @@ public class ProducerInterceptors<K, V> implements Closeable {
     }
 
     /**
+     * 关闭容器中的interceptor
      * Closes every interceptor in a container.
      */
     @Override
