@@ -22,6 +22,9 @@ import org.apache.kafka.common.ClusterResourceListener;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 集群资源监听器
+ */
 public class ClusterResourceListeners {
 
     private final List<ClusterResourceListener> clusterResourceListeners;
@@ -31,6 +34,8 @@ public class ClusterResourceListeners {
     }
 
     /**
+     * 仅当候选对象实现{@link ClusterResourceListener}时才添加
+     *
      * Add only if the candidate implements {@link ClusterResourceListener}.
      * @param candidate Object which might implement {@link ClusterResourceListener}
      */
@@ -41,6 +46,8 @@ public class ClusterResourceListeners {
     }
 
     /**
+     * 从列表中添加所有实现{@link ClusterResourceListener}的组件
+     *
      * Add all items who implement {@link ClusterResourceListener} from the list.
      * @param candidateList List of objects which might implement {@link ClusterResourceListener}
      */
@@ -51,6 +58,8 @@ public class ClusterResourceListeners {
     }
 
     /**
+     * 将更新后的集群元数据发送给所有{@link ClusterResourceListener}
+     *
      * Send the updated cluster metadata to all {@link ClusterResourceListener}.
      * @param cluster Cluster metadata
      */
