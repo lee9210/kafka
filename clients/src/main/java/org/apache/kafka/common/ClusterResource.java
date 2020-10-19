@@ -20,10 +20,15 @@ package org.apache.kafka.common;
 import java.util.Objects;
 
 /**
+ * ClusterResource类封装了Kafka集群的元数据。
+ *
  * The <code>ClusterResource</code> class encapsulates metadata for a Kafka cluster.
  */
 public class ClusterResource {
 
+    /**
+     * kafka集群id
+     */
     private final String clusterId;
 
     /**
@@ -51,8 +56,12 @@ public class ClusterResource {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         ClusterResource that = (ClusterResource) o;
         return Objects.equals(clusterId, that.clusterId);
     }
