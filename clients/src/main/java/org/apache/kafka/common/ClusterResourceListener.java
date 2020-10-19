@@ -17,6 +17,7 @@
 package org.apache.kafka.common;
 
 /**
+ * 获取集群更新消息的回调
  * A callback interface that users can implement when they wish to get notified about changes in the Cluster metadata.
  * <p>
  * Users who need access to cluster metadata in interceptors, metric reporters, serializers and deserializers
@@ -47,6 +48,8 @@ package org.apache.kafka.common;
  */
 public interface ClusterResourceListener {
     /**
+     * 获取更新{@link ClusterResource}的调用函数。可以在这里面实现
+     *
      * A callback method that a user can implement to get updates for {@link ClusterResource}.
      * @param clusterResource cluster metadata
      */
