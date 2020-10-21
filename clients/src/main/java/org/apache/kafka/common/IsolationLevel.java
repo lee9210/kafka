@@ -16,8 +16,18 @@
  */
 package org.apache.kafka.common;
 
+/**
+ * 隔离级别枚举类
+ */
 public enum IsolationLevel {
-    READ_UNCOMMITTED((byte) 0), READ_COMMITTED((byte) 1);
+    /**
+     * 读取未提交
+     */
+    READ_UNCOMMITTED((byte) 0),
+    /**
+     * 读取已提交
+     */
+    READ_COMMITTED((byte) 1);
 
     private final byte id;
 
