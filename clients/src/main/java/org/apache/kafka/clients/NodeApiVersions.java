@@ -32,37 +32,49 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
+ * 表示特定节点支持的API版本的内部类。
+ *
  * An internal class which represents the API versions supported by a particular node.
  */
 public class NodeApiVersions {
 
     // A map of the usable versions of each API, keyed by the ApiKeys instance
+    /** 每个API可用版本的map，由ApiKeys实例进行键控 */
     private final Map<ApiKeys, ApiVersion> supportedVersions = new EnumMap<>(ApiKeys.class);
 
     // List of APIs which the broker supports, but which are unknown to the client
+    /** broker支持但客户端不知道的api列表 */
     private final List<ApiVersion> unknownApis = new ArrayList<>();
 
     /**
+     * 使用当前的api版本创建一个NodeApiVersions对象。
+     *
      * Create a NodeApiVersions object with the current ApiVersions.
      *
      * @return A new NodeApiVersions object.
      */
     public static NodeApiVersions create() {
-        return create(Collections.<ApiVersion>emptyList());
+        return create(Collections.emptyList());
     }
 
     /**
+     * 创建一个NodeApiVersions对象。
+     * 用传入的API版本加上已经启用的，组成新的合集返回
      * Create a NodeApiVersions object.
      *
-     * @param overrides API versions to override. Any ApiVersion not specified here will be set to the current client
+     * @param overrides 要覆盖的API版本。此处未指定的任何ApiVersion都将设置为当前客户端值。
+     *                  API versions to override. Any ApiVersion not specified here will be set to the current client
      *                  value.
      * @return A new NodeApiVersions object.
      */
     public static NodeApiVersions create(Collection<ApiVersion> overrides) {
+        // 转换成list
         List<ApiVersion> apiVersions = new LinkedList<>(overrides);
+        // 遍历已经启用的ApiKey
         for (ApiKeys apiKey : ApiKeys.enabledApis()) {
             boolean exists = false;
             for (ApiVersion apiVersion : apiVersions) {
+                // 如果相等，则
                 if (apiVersion.apiKey == apiKey.id) {
                     exists = true;
                     break;
@@ -88,6 +100,10 @@ public class NodeApiVersions {
         return create(Collections.singleton(new ApiVersion(apiKey, minVersion, maxVersion)));
     }
 
+    /**
+     * 初始化NodeApiVersions
+     * 本地有的话才加入supportedVersions，本地没有则加入unknownApis
+     */
     public NodeApiVersions(ApiVersionsResponseKeyCollection nodeApiVersions) {
         for (ApiVersionsResponseKey nodeApiVersion : nodeApiVersions) {
             if (ApiKeys.hasId(nodeApiVersion.apiKey())) {
@@ -100,6 +116,10 @@ public class NodeApiVersions {
         }
     }
 
+    /**
+     * 初始化NodeApiVersions
+     * 本地有的话才加入supportedVersions，本地没有则加入unknownApis
+     */
     public NodeApiVersions(Collection<ApiVersion> nodeApiVersions) {
         for (ApiVersion nodeApiVersion : nodeApiVersions) {
             if (ApiKeys.hasId(nodeApiVersion.apiKey)) {
@@ -113,6 +133,8 @@ public class NodeApiVersions {
     }
 
     /**
+     * 返回节点和本地支持的最新版本。
+     *
      * Return the most recent version supported by both the node and the local software.
      */
     public short latestUsableVersion(ApiKeys apiKey) {
@@ -120,23 +142,30 @@ public class NodeApiVersions {
     }
 
     /**
+     * 在允许的版本范围内获得broker支持的最新版本
+     *
      * Get the latest version supported by the broker within an allowed range of versions
      */
     public short latestUsableVersion(ApiKeys apiKey, short oldestAllowedVersion, short latestAllowedVersion) {
         ApiVersion usableVersion = supportedVersions.get(apiKey);
-        if (usableVersion == null)
+        if (usableVersion == null) {
             throw new UnsupportedVersionException("The broker does not support " + apiKey);
+        }
         return latestUsableVersion(apiKey, usableVersion, oldestAllowedVersion, latestAllowedVersion);
     }
 
+    /**
+     * 获取本地支持的最大版本
+     */
     private short latestUsableVersion(ApiKeys apiKey, ApiVersion supportedVersions,
                                       short minAllowedVersion, short maxAllowedVersion) {
         short minVersion = (short) Math.max(minAllowedVersion, supportedVersions.minVersion);
         short maxVersion = (short) Math.min(maxAllowedVersion, supportedVersions.maxVersion);
-        if (minVersion > maxVersion)
+        if (minVersion > maxVersion) {
             throw new UnsupportedVersionException("The broker does not support " + apiKey +
                     " with version in range [" + minAllowedVersion + "," + maxAllowedVersion + "]. The supported" +
                     " range is [" + supportedVersions.minVersion + "," + supportedVersions.maxVersion + "].");
+        }
         return maxVersion;
     }
 
@@ -160,10 +189,12 @@ public class NodeApiVersions {
         // a TreeMap before printing it out to ensure that we always print in
         // ascending order.
         TreeMap<Short, String> apiKeysText = new TreeMap<>();
-        for (ApiVersion supportedVersion : this.supportedVersions.values())
+        for (ApiVersion supportedVersion : this.supportedVersions.values()) {
             apiKeysText.put(supportedVersion.apiKey, apiVersionToText(supportedVersion));
-        for (ApiVersion apiVersion : unknownApis)
+        }
+        for (ApiVersion apiVersion : unknownApis) {
             apiKeysText.put(apiVersion.apiKey, apiVersionToText(apiVersion));
+        }
 
         // Also handle the case where some apiKey types are not specified at all in the given ApiVersions,
         // which may happen when the remote is too old.
@@ -178,15 +209,20 @@ public class NodeApiVersions {
         String separator = lineBreaks ? ",\n\t" : ", ";
         StringBuilder bld = new StringBuilder();
         bld.append("(");
-        if (lineBreaks)
+        if (lineBreaks) {
             bld.append("\n\t");
+        }
         bld.append(Utils.join(apiKeysText.values(), separator));
-        if (lineBreaks)
+        if (lineBreaks) {
             bld.append("\n");
+        }
         bld.append(")");
         return bld.toString();
     }
 
+    /**
+     * 转换成String
+     */
     private String apiVersionToText(ApiVersion apiVersion) {
         StringBuilder bld = new StringBuilder();
         ApiKeys apiKey = null;
@@ -218,6 +254,7 @@ public class NodeApiVersions {
     }
 
     /**
+     * 根据api获取本地支持的对应的api信息
      * Get the version information for a given API.
      *
      * @param apiKey The api key to lookup
