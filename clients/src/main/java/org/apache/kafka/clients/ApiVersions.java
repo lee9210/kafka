@@ -24,6 +24,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
+ * 维护节点api版本，用于NetworkClient之外的访问。
+ * 该模式类似于对topic元数据使用{@link Metadata}。
+ *
  * Maintains node api versions for access outside of NetworkClient (which is where the information is derived).
  * The pattern is akin to the use of {@link Metadata} for topic metadata.
  *
@@ -31,23 +34,41 @@ import java.util.Map;
  */
 public class ApiVersions {
 
+    /** node节点对应的api */
     private final Map<String, NodeApiVersions> nodeApiVersions = new HashMap<>();
+    /** 本地magic值 */
     private byte maxUsableProduceMagic = RecordBatch.CURRENT_MAGIC_VALUE;
 
+    /**
+     * 更新或者增加node节点的api
+     */
     public synchronized void update(String nodeId, NodeApiVersions nodeApiVersions) {
         this.nodeApiVersions.put(nodeId, nodeApiVersions);
+        // 重新设置支持版本号
         this.maxUsableProduceMagic = computeMaxUsableProduceMagic();
     }
 
+    /**
+     * 移除节点api
+     */
     public synchronized void remove(String nodeId) {
         this.nodeApiVersions.remove(nodeId);
+        // 重置版本号
         this.maxUsableProduceMagic = computeMaxUsableProduceMagic();
     }
 
+    /**
+     * 获取节点API
+     * @param nodeId
+     * @return
+     */
     public synchronized NodeApiVersions get(String nodeId) {
         return this.nodeApiVersions.get(nodeId);
     }
 
+    /**
+     * 获取支持的最小版本
+     */
     private byte computeMaxUsableProduceMagic() {
         // use a magic version which is supported by all brokers to reduce the chance that
         // we will need to convert the messages when they are ready to be sent.
@@ -59,6 +80,9 @@ public class ApiVersions {
         return maxUsableMagic;
     }
 
+    /**
+     * 获取支持的版本
+     */
     public synchronized byte maxUsableProduceMagic() {
         return maxUsableProduceMagic;
     }
