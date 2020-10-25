@@ -24,6 +24,9 @@ import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 事务发送result
+ */
 public final class TransactionalRequestResult {
 
     private final CountDownLatch latch;
@@ -39,15 +42,25 @@ public final class TransactionalRequestResult {
         this.operation = operation;
     }
 
+    /**
+     * 失败
+     * @param error
+     */
     public void fail(RuntimeException error) {
         this.error = error;
         this.latch.countDown();
     }
 
+    /**
+     * 设置完成，并唤醒等待线程
+     */
     public void done() {
         this.latch.countDown();
     }
 
+    /**
+     * 等待完成或等待异常出现
+     */
     public void await() {
         boolean completed = false;
 
@@ -60,10 +73,14 @@ public final class TransactionalRequestResult {
             }
         }
 
-        if (!isSuccessful())
+        if (!isSuccessful()) {
             throw error();
+        }
     }
 
+    /**
+     * 设置超时等待
+     */
     public void await(long timeout, TimeUnit unit) {
         try {
             boolean success = latch.await(timeout, unit);
@@ -78,14 +95,23 @@ public final class TransactionalRequestResult {
         }
     }
 
+    /**
+     * 获取异常
+     */
     public RuntimeException error() {
         return error;
     }
 
+    /**
+     * 检测是否成功
+     */
     public boolean isSuccessful() {
         return error == null;
     }
 
+    /**
+     * 检测是否完成
+     */
     public boolean isCompleted() {
         return latch.getCount() == 0L;
     }
