@@ -407,7 +407,7 @@ public final class RecordAccumulator {
     }
 
     /**
-     * 将给定的batch重新加到queue中
+     * 将给定的batch重新加到发送中
      * 在Sender.completeBatch方法中，我们检查把batch是否已经达到deliveryTimeoutMs。因此，我们在这里不进行交付超时检查。
      *
      * Re-enqueue the given record batch in the accumulator. In Sender.completeBatch method, we check
@@ -790,6 +790,7 @@ public final class RecordAccumulator {
 
         Map<Integer, List<ProducerBatch>> batches = new HashMap<>();
         for (Node node : nodes) {
+            // 获取node节点的需要发送的batch
             List<ProducerBatch> ready = drainBatchesForOneNode(cluster, node, maxSize, now);
             batches.put(node.id(), ready);
         }
@@ -949,7 +950,7 @@ public final class RecordAccumulator {
     }
 
     /**
-     * 中止所有未完成的批(无论是否已发送)，
+     * 中止所有未完成的batch(无论是否已发送)，
      * 一般是producer关闭或者，发送事务过程中，同时失败了，释放内存
      *
      * Abort all incomplete batches (whether they have been sent or not)
