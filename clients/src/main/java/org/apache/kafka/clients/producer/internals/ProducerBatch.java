@@ -72,7 +72,9 @@ public final class ProducerBatch {
     private final List<Thunk> thunks = new ArrayList<>();
     /** 基于内存的record构造器，可以通过此builder方便的写入数据等操作 */
     private final MemoryRecordsBuilder recordsBuilder;
+    /** 尝试次数 */
     private final AtomicInteger attempts = new AtomicInteger(0);
+    /** 是否为分割后的batch */
     private final boolean isSplitBatch;
     private final AtomicReference<FinalState> finalState = new AtomicReference<>(null);
 
@@ -193,6 +195,8 @@ public final class ProducerBatch {
     }
 
     /**
+     * 确定批处理的状态。最终状态一旦设置，就是不可变的。对于batch，可能会调用该函数一到两次
+     *
      * Finalize the state of a batch. Final state, once set, is immutable. This function may be called
      * once or twice on a batch. It may be called twice if
      * 1. An inflight batch expires before a response from the broker is received. The batch's final
@@ -415,6 +419,9 @@ public final class ProducerBatch {
         return attempts.get();
     }
 
+    /**
+     * 设置重试，并且更新重试和加入时间
+     */
     void reenqueued(long now) {
         attempts.getAndIncrement();
         lastAttemptMs = Math.max(lastAppendTime, now);
@@ -426,10 +433,18 @@ public final class ProducerBatch {
         return drainedMs - createdMs;
     }
 
+    /**
+     * 获取等待时间
+     * @param nowMs
+     * @return
+     */
     long waitedTimeMs(long nowMs) {
         return Math.max(0, nowMs - lastAttemptMs);
     }
 
+    /**
+     * 设置清空时间
+     */
     void drained(long nowMs) {
         this.drainedMs = Math.max(drainedMs, nowMs);
     }
@@ -445,6 +460,9 @@ public final class ProducerBatch {
         return this.retry;
     }
 
+    /**
+     * 获取builder
+     */
     public MemoryRecords records() {
         return recordsBuilder.build();
     }
@@ -466,7 +484,7 @@ public final class ProducerBatch {
     }
 
     /**
-     * 重新设置producer状态
+     * 重新设置producer状态,主要设置序列号
      * @param producerIdAndEpoch
      * @param baseSequence
      * @param isTransactional
@@ -498,6 +516,7 @@ public final class ProducerBatch {
     }
 
     /**
+     * 设置builder为阻塞，则此batch不能写入数据
      * Abort the record builder and reset the state of the underlying buffer. This is used prior to aborting
      * the batch with {@link #abort(RuntimeException)} and ensures that no record previously appended can be
      * read. This is used in scenarios where we want to ensure a batch ultimately gets aborted, but in which
