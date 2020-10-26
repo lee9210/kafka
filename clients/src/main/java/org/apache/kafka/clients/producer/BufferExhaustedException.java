@@ -19,6 +19,9 @@ package org.apache.kafka.clients.producer;
 import org.apache.kafka.common.errors.TimeoutException;
 
 /**
+ * 如果生成器不能为max.block中的记录分配内存，则抛出此异常。
+ * 因为缓冲区太满了。
+ *
  * This exception is thrown if the producer cannot allocate memory for a record within max.block.ms due to the buffer
  * being too full.
  *
