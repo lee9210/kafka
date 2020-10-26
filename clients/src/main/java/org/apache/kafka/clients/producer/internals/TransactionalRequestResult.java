@@ -43,7 +43,7 @@ public final class TransactionalRequestResult {
     }
 
     /**
-     * 失败
+     * 设置运行时异常
      * @param error
      */
     public void fail(RuntimeException error) {
