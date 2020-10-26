@@ -86,6 +86,9 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
+ * 维护事务状态的类。也保持必要的状态，以确保幂等生产。
+ * todo
+ *
  * A class which maintains state for transactions. Also keeps the state necessary to ensure idempotent production.
  */
 public class TransactionManager {
@@ -93,80 +96,123 @@ public class TransactionManager {
     private static final int NO_LAST_ACKED_SEQUENCE_NUMBER = -1;
 
     private final Logger log;
+    /** 事务id */
     private final String transactionalId;
+    /** 事务超时时间 */
     private final int transactionTimeoutMs;
+    /** 节点api版本信息 */
     private final ApiVersions apiVersions;
+    /** 自动降级事务级别 */
     private final boolean autoDowngradeTxnCommit;
 
+    /** 分区状态管理 */
     private static class TopicPartitionBookkeeper {
 
         private final Map<TopicPartition, TopicPartitionEntry> topicPartitions = new HashMap<>();
 
+        /**
+         * 获取分区信息
+         */
         private TopicPartitionEntry getPartition(TopicPartition topicPartition) {
             TopicPartitionEntry ent = topicPartitions.get(topicPartition);
-            if (ent == null)
+            if (ent == null) {
                 throw new IllegalStateException("Trying to get the sequence number for " + topicPartition +
                         ", but the sequence number was never set for this partition.");
+            }
             return ent;
         }
 
+        /**
+         * 增加分区
+         * @param topicPartition
+         */
         private void addPartition(TopicPartition topicPartition) {
             this.topicPartitions.putIfAbsent(topicPartition, new TopicPartitionEntry());
         }
 
+        /**
+         * 检测是否含有分区
+         */
         private boolean contains(TopicPartition topicPartition) {
             return topicPartitions.containsKey(topicPartition);
         }
 
+        /**
+         * 清空分区
+         */
         private void reset() {
             topicPartitions.clear();
         }
 
+        /**
+         * 获取最后确认收到的偏移量
+         */
         private OptionalLong lastAckedOffset(TopicPartition topicPartition) {
             TopicPartitionEntry entry = topicPartitions.get(topicPartition);
-            if (entry != null && entry.lastAckedOffset != ProduceResponse.INVALID_OFFSET)
+            if (entry != null && entry.lastAckedOffset != ProduceResponse.INVALID_OFFSET) {
                 return OptionalLong.of(entry.lastAckedOffset);
-            else
+            } else {
                 return OptionalLong.empty();
+            }
         }
 
+        /**
+         * 获取最后确认收到的序列号
+         * @param topicPartition
+         * @return
+         */
         private OptionalInt lastAckedSequence(TopicPartition topicPartition) {
             TopicPartitionEntry entry = topicPartitions.get(topicPartition);
-            if (entry != null && entry.lastAckedSequence != NO_LAST_ACKED_SEQUENCE_NUMBER)
+            if (entry != null && entry.lastAckedSequence != NO_LAST_ACKED_SEQUENCE_NUMBER) {
                 return OptionalInt.of(entry.lastAckedSequence);
-            else
+            } else {
                 return OptionalInt.empty();
+            }
         }
 
+        /**
+         * 设置序列号为0
+         * @param topicPartition
+         * @param newProducerIdAndEpoch
+         */
         private void startSequencesAtBeginning(TopicPartition topicPartition, ProducerIdAndEpoch newProducerIdAndEpoch) {
+            // 初始化0
             final PrimitiveRef.IntRef sequence = PrimitiveRef.ofInt(0);
+            // 获取分区信息
             TopicPartitionEntry topicPartitionEntry = getPartition(topicPartition);
+            // 重置序列号为0
             topicPartitionEntry.resetSequenceNumbers(inFlightBatch -> {
                 inFlightBatch.resetProducerState(newProducerIdAndEpoch, sequence.value, inFlightBatch.isTransactional());
                 sequence.value += inFlightBatch.recordCount;
             });
+            // 设置下个序列号
             topicPartitionEntry.nextSequence = sequence.value;
             topicPartitionEntry.lastAckedSequence = NO_LAST_ACKED_SEQUENCE_NUMBER;
         }
     }
 
+    /** 分区对应的序列号等信息 */
     private static class TopicPartitionEntry {
 
         // The base sequence of the next batch bound for a given partition.
+        // 下一个分区的批号
         private int nextSequence;
 
         // The sequence number of the last record of the last ack'd batch from the given partition. When there are no
         // in flight requests for a partition, the lastAckedSequence(topicPartition) == nextSequence(topicPartition) - 1.
+        // 给定分区中最后一个已经完成的batch的最后一条记录的批号。
         private int lastAckedSequence;
 
         // Keep track of the in flight batches bound for a partition, ordered by sequence. This helps us to ensure that
         // we continue to order batches by the sequence numbers even when the responses come back out of order during
         // leader failover. We add a batch to the queue when it is drained, and remove it when the batch completes
         // (either successfully or through a fatal failure).
+        // 等待发送的batch，并排序
         private SortedSet<ProducerBatch> inflightBatchesBySequence;
 
         // We keep track of the last acknowledged offset on a per partition basis in order to disambiguate UnknownProducer
         // responses which are due to the retention period elapsing, and those which are due to actual lost data.
+        // 每个分区的最后确认的偏移量
         private long lastAckedOffset;
 
         TopicPartitionEntry() {
@@ -176,6 +222,9 @@ public class TransactionManager {
             this.inflightBatchesBySequence = new TreeSet<>(Comparator.comparingInt(ProducerBatch::baseSequence));
         }
 
+        /**
+         * 重置等待发送的队列
+         */
         void resetSequenceNumbers(Consumer<ProducerBatch> resetSequence) {
             TreeSet<ProducerBatch> newInflights = new TreeSet<>(Comparator.comparingInt(ProducerBatch::baseSequence));
             for (ProducerBatch inflightBatch : inflightBatchesBySequence) {
@@ -186,8 +235,10 @@ public class TransactionManager {
         }
     }
 
+    /** 分区管理器 */
     private final TopicPartitionBookkeeper topicPartitionBookkeeper;
 
+    /** 分区已提交offset */
     private final Map<TopicPartition, CommittedOffset> pendingTxnOffsetCommits;
 
     // If a batch bound for a partition expired locally after being sent at least once, the partition has is considered
@@ -199,12 +250,15 @@ public class TransactionManager {
     // The value of the map is the sequence number of the batch following the expired one, computed by adding its
     // record count to its sequence number. This is used to tell if a subsequent batch is the one immediately following
     // the expired one.
+    /** 带有未解析序列的分区 */
     private final Map<TopicPartition, Integer> partitionsWithUnresolvedSequences;
 
     // The partitions that have received an error that triggers an epoch bump. When the epoch is bumped, these
     // partitions will have the sequences of their in-flight batches rewritten
+    /** 重写序列的分区 */
     private final Set<TopicPartition> partitionsToRewriteSequences;
 
+    /** 挂起的请求，有优先性 */
     private final PriorityQueue<TxnRequestHandler> pendingRequests;
     private final Set<TopicPartition> newPartitionsInTransaction;
     private final Set<TopicPartition> pendingPartitionsInTransaction;
@@ -352,8 +406,9 @@ public class TransactionManager {
 
     public synchronized TransactionalRequestResult beginAbort() {
         return handleCachedTransactionRequestResult(() -> {
-            if (currentState != State.ABORTABLE_ERROR)
+            if (currentState != State.ABORTABLE_ERROR) {
                 maybeFailWithError();
+            }
             transitionTo(State.ABORTING_TRANSACTION);
 
             // We're aborting the transaction, so there should be no need to add new partitions
@@ -363,8 +418,9 @@ public class TransactionManager {
     }
 
     private TransactionalRequestResult beginCompletingTransaction(TransactionResult transactionResult) {
-        if (!newPartitionsInTransaction.isEmpty())
+        if (!newPartitionsInTransaction.isEmpty()) {
             enqueueRequest(addPartitionsToTransactionHandler());
+        }
 
         // If the error is an INVALID_PRODUCER_ID_MAPPING error, the server will not accept an EndTxnRequest, so skip
         // directly to InitProducerId. Otherwise, we must first abort the transaction, because the producer will be
@@ -391,9 +447,10 @@ public class TransactionManager {
                                                                             final ConsumerGroupMetadata groupMetadata) {
         ensureTransactional();
         maybeFailWithError();
-        if (currentState != State.IN_TRANSACTION)
+        if (currentState != State.IN_TRANSACTION) {
             throw new KafkaException("Cannot send offsets to transaction either because the producer is not in an " +
                     "active transaction");
+        }
 
         log.debug("Begin adding offsets {} for consumer group {} to transaction", offsets, groupMetadata);
         AddOffsetsToTxnRequest.Builder builder = new AddOffsetsToTxnRequest.Builder(
@@ -410,8 +467,9 @@ public class TransactionManager {
     }
 
     public synchronized void maybeAddPartitionToTransaction(TopicPartition topicPartition) {
-        if (isPartitionAdded(topicPartition) || isPartitionPendingAdd(topicPartition))
+        if (isPartitionAdded(topicPartition) || isPartitionPendingAdd(topicPartition)) {
             return;
+        }
 
         log.debug("Begin adding new partition {} to transaction", topicPartition);
         topicPartitionBookkeeper.addPartition(topicPartition);
@@ -423,23 +481,27 @@ public class TransactionManager {
     }
 
     public synchronized void failIfNotReadyForSend() {
-        if (hasError())
+        if (hasError()) {
             throw new KafkaException("Cannot perform send because at least one previous transactional or " +
                     "idempotent request has failed with errors.", lastError);
+        }
 
         if (isTransactional()) {
-            if (!hasProducerId())
+            if (!hasProducerId()) {
                 throw new IllegalStateException("Cannot perform a 'send' before completing a call to initTransactions " +
                         "when transactions are enabled.");
+            }
 
-            if (currentState != State.IN_TRANSACTION)
+            if (currentState != State.IN_TRANSACTION) {
                 throw new IllegalStateException("Cannot call send in state " + currentState);
+            }
         }
     }
 
     synchronized boolean isSendToPartitionAllowed(TopicPartition tp) {
-        if (hasFatalError())
+        if (hasFatalError()) {
             return false;
+        }
         return !isTransactional() || partitionsInTransaction.contains(tp);
     }
 
@@ -471,6 +533,9 @@ public class TransactionManager {
         return currentState == State.ABORTING_TRANSACTION;
     }
 
+    /**
+     * 设置中止异常
+     */
     synchronized void transitionToAbortableError(RuntimeException exception) {
         if (currentState == State.ABORTING_TRANSACTION) {
             log.debug("Skipping transition to abortable error state since the transaction is already being " +
@@ -482,11 +547,16 @@ public class TransactionManager {
         transitionTo(State.ABORTABLE_ERROR, exception);
     }
 
+    /**
+     * 判断异常类型，并设置当前异常
+     */
     synchronized void transitionToFatalError(RuntimeException exception) {
         log.info("Transiting to fatal error state due to {}", exception.toString());
+        // 设置当前异常
         transitionTo(State.FATAL_ERROR, exception);
 
         if (pendingResult != null) {
+            // 设置运行时异常
             pendingResult.fail(exception);
         }
     }
@@ -530,9 +600,10 @@ public class TransactionManager {
      * instead.
      */
     private void resetIdempotentProducerId() {
-        if (isTransactional())
+        if (isTransactional()) {
             throw new IllegalStateException("Cannot reset producer state for a transactional producer. " +
                     "You must either abort the ongoing transaction or reinitialize the transactional producer instead");
+        }
         log.debug("Resetting idempotent producer ID. ID and epoch before reset are {}", this.producerIdAndEpoch);
         setProducerIdAndEpoch(ProducerIdAndEpoch.NONE);
         transitionTo(State.UNINITIALIZED);
@@ -571,6 +642,9 @@ public class TransactionManager {
         epochBumpRequired = false;
     }
 
+    /**
+     * 检查是否需要一个新的producerId
+     */
     synchronized void bumpIdempotentEpochAndResetIdIfNeeded() {
         if (!isTransactional()) {
             if (epochBumpRequired) {
@@ -591,8 +665,9 @@ public class TransactionManager {
      * Returns the next sequence number to be written to the given TopicPartition.
      */
     synchronized Integer sequenceNumber(TopicPartition topicPartition) {
-        if (!isTransactional())
+        if (!isTransactional()) {
             topicPartitionBookkeeper.addPartition(topicPartition);
+        }
 
         return topicPartitionBookkeeper.getPartition(topicPartition).nextSequence;
     }
@@ -605,8 +680,9 @@ public class TransactionManager {
     }
 
     synchronized void addInFlightBatch(ProducerBatch batch) {
-        if (!batch.hasSequence())
+        if (!batch.hasSequence()) {
             throw new IllegalStateException("Can't track batch for partition " + batch.topicPartition + " when sequence is not set.");
+        }
         topicPartitionBookkeeper.getPartition(batch.topicPartition).inflightBatchesBySequence.add(batch);
     }
 
@@ -618,14 +694,16 @@ public class TransactionManager {
      *         RecordBatch.NO_SEQUENCE.
      */
     synchronized int firstInFlightSequence(TopicPartition topicPartition) {
-        if (!hasInflightBatches(topicPartition))
+        if (!hasInflightBatches(topicPartition)) {
             return RecordBatch.NO_SEQUENCE;
+        }
 
         SortedSet<ProducerBatch> inflightBatches = topicPartitionBookkeeper.getPartition(topicPartition).inflightBatchesBySequence;
-        if (inflightBatches.isEmpty())
+        if (inflightBatches.isEmpty()) {
             return RecordBatch.NO_SEQUENCE;
-        else
+        } else {
             return inflightBatches.first().baseSequence();
+        }
     }
 
     synchronized ProducerBatch nextBatchBySequence(TopicPartition topicPartition) {
@@ -658,8 +736,9 @@ public class TransactionManager {
     }
 
     private void updateLastAckedOffset(ProduceResponse.PartitionResponse response, ProducerBatch batch) {
-        if (response.baseOffset == ProduceResponse.INVALID_OFFSET)
+        if (response.baseOffset == ProduceResponse.INVALID_OFFSET) {
             return;
+        }
         long lastOffset = response.baseOffset + batch.recordCount - 1;
         OptionalLong lastAckedOffset = lastAckedOffset(batch.topicPartition);
         // It might happen that the TransactionManager has been reset while a request was reenqueued and got a valid
@@ -755,27 +834,31 @@ public class TransactionManager {
     // This method must only be called when we know that the batch is question has been unequivocally failed by the broker,
     // ie. it has received a confirmed fatal status code like 'Message Too Large' or something similar.
     private void adjustSequencesDueToFailedBatch(ProducerBatch batch) {
-        if (!topicPartitionBookkeeper.contains(batch.topicPartition))
-            // Sequence numbers are not being tracked for this partition. This could happen if the producer id was just
-            // reset due to a previous OutOfOrderSequenceException.
+        // Sequence numbers are not being tracked for this partition. This could happen if the producer id was just
+        // reset due to a previous OutOfOrderSequenceException.
+        if (!topicPartitionBookkeeper.contains(batch.topicPartition)) {
             return;
+        }
         log.debug("producerId: {}, send to partition {} failed fatally. Reducing future sequence numbers by {}",
                 batch.producerId(), batch.topicPartition, batch.recordCount);
         int currentSequence = sequenceNumber(batch.topicPartition);
         currentSequence -= batch.recordCount;
-        if (currentSequence < 0)
+        if (currentSequence < 0) {
             throw new IllegalStateException("Sequence number for partition " + batch.topicPartition + " is going to become negative: " + currentSequence);
+        }
 
         setNextSequence(batch.topicPartition, currentSequence);
 
         topicPartitionBookkeeper.getPartition(batch.topicPartition).resetSequenceNumbers(inFlightBatch -> {
-            if (inFlightBatch.baseSequence() < batch.baseSequence())
+            if (inFlightBatch.baseSequence() < batch.baseSequence()) {
                 return;
+            }
 
             int newSequence = inFlightBatch.baseSequence() - batch.recordCount;
-            if (newSequence < 0)
+            if (newSequence < 0) {
                 throw new IllegalStateException("Sequence number for batch with sequence " + inFlightBatch.baseSequence()
                         + " for partition " + batch.topicPartition + " is going to become negative: " + newSequence);
+            }
 
             log.info("Resetting sequence number of batch with current sequence {} for partition {} to {}", inFlightBatch.baseSequence(), batch.topicPartition, newSequence);
             inFlightBatch.resetProducerState(new ProducerIdAndEpoch(inFlightBatch.producerId(), inFlightBatch.producerEpoch()), newSequence, inFlightBatch.isTransactional());
@@ -805,6 +888,9 @@ public class TransactionManager {
 
     // Attempts to resolve unresolved sequences. If all in-flight requests are complete and some partitions are still
     // unresolved, either bump the epoch if possible, or transition to a fatal error
+    /**
+     * 试图解析未解析的序列。
+     */
     synchronized void maybeResolveSequences() {
         for (Iterator<TopicPartition> iter = partitionsWithUnresolvedSequences.keySet().iterator(); iter.hasNext(); ) {
             TopicPartition topicPartition = iter.next();
@@ -858,16 +944,19 @@ public class TransactionManager {
     }
 
     synchronized TxnRequestHandler nextRequest(boolean hasIncompleteBatches) {
-        if (!newPartitionsInTransaction.isEmpty())
+        if (!newPartitionsInTransaction.isEmpty()) {
             enqueueRequest(addPartitionsToTransactionHandler());
+        }
 
         TxnRequestHandler nextRequestHandler = pendingRequests.peek();
-        if (nextRequestHandler == null)
+        if (nextRequestHandler == null) {
             return null;
+        }
 
         // Do not send the EndTxn until all batches have been flushed
-        if (nextRequestHandler.isEndTxn() && hasIncompleteBatches)
+        if (nextRequestHandler.isEndTxn() && hasIncompleteBatches) {
             return null;
+        }
 
         pendingRequests.poll();
         if (maybeTerminateRequestWithError(nextRequestHandler)) {
@@ -886,8 +975,9 @@ public class TransactionManager {
             nextRequestHandler = pendingRequests.poll();
         }
 
-        if (nextRequestHandler != null)
+        if (nextRequestHandler != null) {
             log.trace("Request {} dequeued for sending", nextRequestHandler.requestBuilder());
+        }
 
         return nextRequestHandler;
     }
@@ -898,8 +988,9 @@ public class TransactionManager {
     }
 
     synchronized void authenticationFailed(AuthenticationException e) {
-        for (TxnRequestHandler request : pendingRequests)
+        for (TxnRequestHandler request : pendingRequests) {
             request.fatalError(e);
+        }
     }
 
     synchronized void close() {
@@ -1061,32 +1152,41 @@ public class TransactionManager {
         transitionTo(target, null);
     }
 
+    /**
+     * 设置当前异常
+     * @param target
+     * @param error
+     */
     private void transitionTo(State target, RuntimeException error) {
+        // 检测异常
         if (!currentState.isTransitionValid(currentState, target)) {
             String idString = transactionalId == null ?  "" : "TransactionalId " + transactionalId + ": ";
             throw new KafkaException(idString + "Invalid transition attempted from state "
                     + currentState.name() + " to state " + target.name());
         }
-
+        // 设置异常
         if (target == State.FATAL_ERROR || target == State.ABORTABLE_ERROR) {
-            if (error == null)
+            if (error == null) {
                 throw new IllegalArgumentException("Cannot transition to " + target + " with a null exception");
+            }
             lastError = error;
         } else {
             lastError = null;
         }
 
-        if (lastError != null)
+        if (lastError != null) {
             log.debug("Transition from state {} to error state {}", currentState, target, lastError);
-        else
+        } else {
             log.debug("Transition from state {} to {}", currentState, target);
-
+        }
+        // 设置当前的状态
         currentState = target;
     }
 
     private void ensureTransactional() {
-        if (!isTransactional())
+        if (!isTransactional()) {
             throw new IllegalStateException("Transactional method invoked on a non-transactional producer.");
+        }
     }
 
     private void maybeFailWithError() {
@@ -1104,9 +1204,10 @@ public class TransactionManager {
 
     private boolean maybeTerminateRequestWithError(TxnRequestHandler requestHandler) {
         if (hasError()) {
-            if (hasAbortableError() && requestHandler instanceof FindCoordinatorHandler)
-                // No harm letting the FindCoordinator request go through if we're expecting to abort
+            // No harm letting the FindCoordinator request go through if we're expecting to abort
+            if (hasAbortableError() && requestHandler instanceof FindCoordinatorHandler) {
                 return false;
+            }
 
             requestHandler.fail(lastError);
             return true;
@@ -1119,6 +1220,9 @@ public class TransactionManager {
         pendingRequests.add(requestHandler);
     }
 
+    /**
+     * 重置事务
+     */
     private void lookupCoordinator(FindCoordinatorRequest.CoordinatorType type, String coordinatorKey) {
         switch (type) {
             case GROUP:
@@ -1149,6 +1253,9 @@ public class TransactionManager {
         return new AddPartitionsToTxnHandler(builder);
     }
 
+    /**
+     * 获取offset提交结果返回的处理handler
+     */
     private TxnOffsetCommitHandler txnOffsetCommitHandler(TransactionalRequestResult result,
                                                           Map<TopicPartition, OffsetAndMetadata> offsets,
                                                           ConsumerGroupMetadata groupMetadata) {
@@ -1180,8 +1287,9 @@ public class TransactionManager {
 
         if (pendingResult != null && currentState == targetState) {
             TransactionalRequestResult result = pendingResult;
-            if (result.isCompleted())
+            if (result.isCompleted()) {
                 pendingResult = null;
+            }
             return result;
         }
 
@@ -1212,6 +1320,9 @@ public class TransactionManager {
         partitionsInTransaction.clear();
     }
 
+    /**
+     * 事务完成处理handler
+     */
     abstract class TxnRequestHandler implements RequestCompletionHandler {
         protected final TransactionalRequestResult result;
         private boolean isRetry = false;
@@ -1224,13 +1335,23 @@ public class TransactionManager {
             this(new TransactionalRequestResult(operation));
         }
 
+        /**
+         * 设置异常
+         */
         void fatalError(RuntimeException e) {
+            // 设置result异常
             result.fail(e);
+            // 判断异常类型，并设置当前异常
             transitionToFatalError(e);
         }
 
+        /**
+         * 设置当前异常
+         */
         void abortableError(RuntimeException e) {
+            // 设置result异常
             result.fail(e);
+            // 设置当前异常
             transitionToAbortableError(e);
         }
 
@@ -1243,10 +1364,16 @@ public class TransactionManager {
             }
         }
 
+        /**
+         * 设置异常
+         */
         void fail(RuntimeException e) {
             result.fail(e);
         }
 
+        /**
+         * 设置可重试
+         */
         void reenqueue() {
             synchronized (TransactionManager.this) {
                 this.isRetry = true;
@@ -1254,30 +1381,46 @@ public class TransactionManager {
             }
         }
 
+        /**
+         * 返回重试时间
+         */
         long retryBackoffMs() {
             return retryBackoffMs;
         }
 
+        /**
+         * 发送结果处于完成状态的回调函数
+         */
         @Override
         public void onComplete(ClientResponse response) {
+            // 如果返回的id和当前的事务id不同，则抛出异常
             if (response.requestHeader().correlationId() != inFlightRequestCorrelationId) {
                 fatalError(new RuntimeException("Detected more than one in-flight transactional request."));
             } else {
+                // 设置当前事务id为空
                 clearInFlightCorrelationId();
+                // 断开连接
                 if (response.wasDisconnected()) {
                     log.debug("Disconnected from {}. Will retry.", response.destination());
-                    if (this.needsCoordinator())
+                    // 检查是否是事务类型
+                    if (this.needsCoordinator()) {
+                        // 重置事务类型的请求
                         lookupCoordinator(this.coordinatorType(), this.coordinatorKey());
+                    }
+                    // 设置重试
                     reenqueue();
                 } else if (response.versionMismatch() != null) {
+                    // 设置异常
                     fatalError(response.versionMismatch());
                 } else if (response.hasResponse()) {
                     log.trace("Received transactional response {} for request {}", response.responseBody(),
                             requestBuilder());
                     synchronized (TransactionManager.this) {
+                        // 处理response
                         handleResponse(response.responseBody());
                     }
                 } else {
+                    // 设置异常
                     fatalError(new KafkaException("Could not execute transactional request for unknown reasons"));
                 }
             }
@@ -1480,8 +1623,9 @@ public class TransactionManager {
             //
             // This is only a temporary fix, the long term solution is being tracked in
             // https://issues.apache.org/jira/browse/KAFKA-5482
-            if (partitionsInTransaction.isEmpty())
+            if (partitionsInTransaction.isEmpty()) {
                 this.retryBackoffMs = ADD_PARTITIONS_RETRY_BACKOFF_MS;
+            }
         }
     }
 
@@ -1621,24 +1765,35 @@ public class TransactionManager {
             return Priority.ADD_PARTITIONS_OR_OFFSETS;
         }
 
+        /**
+         * 处理response
+         */
         @Override
         public void handleResponse(AbstractResponse response) {
+            // 强制转换成AddOffsetsToTxnResponse
             AddOffsetsToTxnResponse addOffsetsToTxnResponse = (AddOffsetsToTxnResponse) response;
+            // 获取错误
             Errors error = Errors.forCode(addOffsetsToTxnResponse.data.errorCode());
-
+            // 如果没有错误
             if (error == Errors.NONE) {
                 log.debug("Successfully added partition for consumer group {} to transaction", builder.data.groupId());
 
                 // note the result is not completed until the TxnOffsetCommit returns
+                // TxnOffsetCommit返回后才完成
+                // 设置offsetCommit返回结果处理handler
                 pendingRequests.add(txnOffsetCommitHandler(result, offsets, groupMetadata));
 
                 transactionStarted = true;
             } else if (error == Errors.COORDINATOR_NOT_AVAILABLE || error == Errors.NOT_COORDINATOR) {
+                // 重置事务
                 lookupCoordinator(FindCoordinatorRequest.CoordinatorType.TRANSACTION, transactionalId);
+                // 设置重试
                 reenqueue();
             } else if (error == Errors.COORDINATOR_LOAD_IN_PROGRESS || error == Errors.CONCURRENT_TRANSACTIONS) {
+                // 设置重试
                 reenqueue();
             } else if (error == Errors.UNKNOWN_PRODUCER_ID || error == Errors.INVALID_PRODUCER_ID_MAPPING) {
+                // 设置阻塞
                 abortableErrorIfPossible(error.exception());
             } else if (error == Errors.INVALID_PRODUCER_EPOCH || error == Errors.PRODUCER_FENCED) {
                 // We could still receive INVALID_PRODUCER_EPOCH from old versioned transaction coordinator,
