@@ -113,6 +113,7 @@ public class ConfigTransformerTest {
 
     public static class TestConfigProvider implements ConfigProvider {
 
+        @Override
         public void configure(Map<String, ?> configs) {
         }
 

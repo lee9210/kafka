@@ -474,6 +474,7 @@ public class PluginsTest {
     public static class TestInternalConverter extends JsonConverter {
         public Map<String, ?> configs;
 
+        @Override
         public void configure(Map<String, ?> configs) {
             this.configs = configs;
             super.configure(configs);

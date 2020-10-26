@@ -100,8 +100,9 @@ public class MetadataResponse extends AbstractResponse {
     public Map<String, Errors> errors() {
         Map<String, Errors> errors = new HashMap<>();
         for (MetadataResponseTopic metadata : data.topics()) {
-            if (metadata.errorCode() != Errors.NONE.code())
+            if (metadata.errorCode() != Errors.NONE.code()) {
                 errors.put(metadata.name(), Errors.forCode(metadata.errorCode()));
+            }
         }
         return errors;
     }
@@ -120,8 +121,9 @@ public class MetadataResponse extends AbstractResponse {
     public Set<String> topicsByError(Errors error) {
         Set<String> errorTopics = new HashSet<>();
         for (MetadataResponseTopic metadata : data.topics()) {
-            if (metadata.errorCode() == error.code())
+            if (metadata.errorCode() == error.code()) {
                 errorTopics.add(metadata.name());
+            }
         }
         return errorTopics;
     }
@@ -136,8 +138,9 @@ public class MetadataResponse extends AbstractResponse {
 
         for (TopicMetadata metadata : topicMetadata()) {
             if (metadata.error == Errors.NONE) {
-                if (metadata.isInternal)
+                if (metadata.isInternal) {
                     internalTopics.add(metadata.topic);
+                }
                 for (PartitionMetadata partitionMetadata : metadata.partitionMetadata) {
                     partitions.add(toPartitionInfo(partitionMetadata, holder().brokers));
                 }
@@ -159,8 +162,9 @@ public class MetadataResponse extends AbstractResponse {
     private static Node[] convertToNodeArray(List<Integer> replicaIds, Map<Integer, Node> nodesById) {
         return replicaIds.stream().map(replicaId -> {
             Node node = nodesById.get(replicaId);
-            if (node == null)
+            if (node == null) {
                 return new Node(replicaId, "", -1);
+            }
             return node;
         }).toArray(Node[]::new);
     }
@@ -170,10 +174,11 @@ public class MetadataResponse extends AbstractResponse {
      */
     public Optional<Integer> topicAuthorizedOperations(String topicName) {
         MetadataResponseTopic topic = data.topics().find(topicName);
-        if (topic == null)
+        if (topic == null) {
             return Optional.empty();
-        else
+        } else {
             return Optional.of(topic.topicAuthorizedOperations());
+        }
     }
 
     /**
@@ -186,8 +191,9 @@ public class MetadataResponse extends AbstractResponse {
     private Holder holder() {
         if (holder == null) {
             synchronized (data) {
-                if (holder == null)
+                if (holder == null) {
                     holder = new Holder(data);
+                }
             }
         }
         return holder;
@@ -297,8 +303,12 @@ public class MetadataResponse extends AbstractResponse {
 
         @Override
         public boolean equals(final Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
             final TopicMetadata that = (TopicMetadata) o;
             return isInternal == that.isInternal &&
                 error == that.error &&
@@ -325,13 +335,24 @@ public class MetadataResponse extends AbstractResponse {
     }
 
     // This is used to describe per-partition state in the MetadataResponse
+
+    /**
+     * partition元数据
+     */
     public static class PartitionMetadata {
+        /** topic name */
         public final TopicPartition topicPartition;
+        /** 发生的错误 */
         public final Errors error;
+        /** partition所在leader的id */
         public final Optional<Integer> leaderId;
+        /** leader版本号 */
         public final Optional<Integer> leaderEpoch;
+        /** 副本id */
         public final List<Integer> replicaIds;
+        /** 同步副本id */
         public final List<Integer> inSyncReplicaIds;
+        /** 下线副本id */
         public final List<Integer> offlineReplicaIds;
 
         public PartitionMetadata(Errors error,

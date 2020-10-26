@@ -38,16 +38,25 @@ import java.util.List;
 import static org.apache.kafka.common.utils.Utils.getHost;
 import static org.apache.kafka.common.utils.Utils.getPort;
 
+/**
+ * client工具类
+ */
 public final class ClientUtils {
     private static final Logger log = LoggerFactory.getLogger(ClientUtils.class);
 
     private ClientUtils() {
     }
 
+    /**
+     * 把url转换成List<InetSocketAddress>
+     */
     public static List<InetSocketAddress> parseAndValidateAddresses(List<String> urls, String clientDnsLookupConfig) {
         return parseAndValidateAddresses(urls, ClientDnsLookup.forConfig(clientDnsLookupConfig));
     }
 
+    /**
+     * 把url转换成List<InetSocketAddress>
+     */
     public static List<InetSocketAddress> parseAndValidateAddresses(List<String> urls, ClientDnsLookup clientDnsLookup) {
         List<InetSocketAddress> addresses = new ArrayList<>();
         for (String url : urls) {
@@ -55,8 +64,9 @@ public final class ClientUtils {
                 try {
                     String host = getHost(url);
                     Integer port = getPort(url);
-                    if (host == null || port == null)
+                    if (host == null || port == null) {
                         throw new ConfigException("Invalid url in " + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG + ": " + url);
+                    }
 
                     if (clientDnsLookup == ClientDnsLookup.RESOLVE_CANONICAL_BOOTSTRAP_SERVERS_ONLY) {
                         InetAddress[] inetAddresses = InetAddress.getAllByName(host);
@@ -85,12 +95,15 @@ public final class ClientUtils {
                 }
             }
         }
-        if (addresses.isEmpty())
+        if (addresses.isEmpty()) {
             throw new ConfigException("No resolvable bootstrap urls given in " + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG);
+        }
         return addresses;
     }
 
     /**
+     * 根据提供的配置创建通道builder。
+     *
      * Create a new channel builder from the provided configuration.
      *
      * @param config client configs
@@ -100,6 +113,7 @@ public final class ClientUtils {
      * @return configured ChannelBuilder based on the configs.
      */
     public static ChannelBuilder createChannelBuilder(AbstractConfig config, Time time, LogContext logContext) {
+        // 获取协议
         SecurityProtocol securityProtocol = SecurityProtocol.forName(config.getString(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG));
         String clientSaslMechanism = config.getString(SaslConfigs.SASL_MECHANISM);
         return ChannelBuilders.clientChannelBuilder(securityProtocol, JaasContext.Type.CLIENT, config, null,

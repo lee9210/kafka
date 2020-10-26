@@ -91,8 +91,18 @@ public class FindCoordinatorRequest extends AbstractRequest {
         return data;
     }
 
+    /**
+     * coordinator类型枚举
+     */
     public enum CoordinatorType {
-        GROUP((byte) 0), TRANSACTION((byte) 1);
+        /**
+         * group
+         */
+        GROUP((byte) 0),
+        /**
+         * 事务
+         */
+        TRANSACTION((byte) 1);
 
         final byte id;
 

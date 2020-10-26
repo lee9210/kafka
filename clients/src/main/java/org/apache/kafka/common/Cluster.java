@@ -30,6 +30,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
+ * Kafka集群中节点、主题和分区子集的不可变表示。
+ *
  * An immutable representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
  */
 public final class Cluster {
@@ -40,6 +42,7 @@ public final class Cluster {
     private final Set<String> invalidTopics;
     private final Set<String> internalTopics;
     private final Node controller;
+    /** 分区和分区信息的集合 */
     private final Map<TopicPartition, PartitionInfo> partitionsByTopicPartition;
     private final Map<String, List<PartitionInfo>> partitionsByTopic;
     private final Map<String, List<PartitionInfo>> availablePartitionsByTopic;
@@ -125,8 +128,9 @@ public final class Cluster {
             tmpPartitionsByTopic.computeIfAbsent(p.topic(), topic -> new ArrayList<>()).add(p);
 
             // The leader may not be known
-            if (p.leader() == null || p.leader().isEmpty())
+            if (p.leader() == null || p.leader().isEmpty()) {
                 continue;
+            }
 
             // If it is known, its node information should be available
             List<PartitionInfo> partitionsForNode = Objects.requireNonNull(tmpPartitionsByNode.get(p.leader().id()));
@@ -151,8 +155,9 @@ public final class Cluster {
             if (foundUnavailablePartition) {
                 availablePartitionsForTopic = new ArrayList<>(partitionsForTopic.size());
                 for (PartitionInfo p : partitionsForTopic) {
-                    if (p.leader() != null)
+                    if (p.leader() != null) {
                         availablePartitionsForTopic.add(p);
+                    }
                 }
                 availablePartitionsForTopic = Collections.unmodifiableList(availablePartitionsForTopic);
             } else {
@@ -188,8 +193,9 @@ public final class Cluster {
     public static Cluster bootstrap(List<InetSocketAddress> addresses) {
         List<Node> nodes = new ArrayList<>();
         int nodeId = -1;
-        for (InetSocketAddress address : addresses)
+        for (InetSocketAddress address : addresses) {
             nodes.add(new Node(nodeId--, address.getHostString(), address.getPort()));
+        }
         return new Cluster(null, true, nodes, new ArrayList<>(0),
             Collections.emptySet(), Collections.emptySet(), Collections.emptySet(), null);
     }
@@ -237,16 +243,18 @@ public final class Cluster {
     }
 
     /**
+     * 获取分区对应的leader
      * Get the current leader for the given topic-partition
      * @param topicPartition The topic and partition we want to know the leader for
      * @return The node that is the leader for this topic-partition, or null if there is currently no leader
      */
     public Node leaderFor(TopicPartition topicPartition) {
         PartitionInfo info = partitionsByTopicPartition.get(topicPartition);
-        if (info == null)
+        if (info == null) {
             return null;
-        else
+        } else {
             return info.leader();
+        }
     }
 
     /**
@@ -335,8 +343,12 @@ public final class Cluster {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         Cluster cluster = (Cluster) o;
         return isBootstrapConfigured == cluster.isBootstrapConfigured &&
                 Objects.equals(nodes, cluster.nodes) &&

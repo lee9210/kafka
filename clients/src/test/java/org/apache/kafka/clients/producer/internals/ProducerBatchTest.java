@@ -158,19 +158,12 @@ public class ProducerBatchTest {
     @Test
     public void testSplitPreservesHeaders() {
         for (CompressionType compressionType : CompressionType.values()) {
-            MemoryRecordsBuilder builder = MemoryRecords.builder(
-                    ByteBuffer.allocate(1024),
-                    MAGIC_VALUE_V2,
-                    compressionType,
-                    TimestampType.CREATE_TIME,
-                    0L);
+            MemoryRecordsBuilder builder = MemoryRecords.builder(ByteBuffer.allocate(1024), MAGIC_VALUE_V2, compressionType, TimestampType.CREATE_TIME, 0L);
             ProducerBatch batch = new ProducerBatch(new TopicPartition("topic", 1), builder, now);
             Header header = new RecordHeader("header-key", "header-value".getBytes());
 
             while (true) {
-                FutureRecordMetadata future = batch.tryAppend(
-                        now, "hi".getBytes(), "there".getBytes(),
-                        new Header[]{header}, null, now);
+                FutureRecordMetadata future = batch.tryAppend(now, "hi".getBytes(), "there".getBytes(), new Header[]{header}, null, now);
                 if (future == null) {
                     break;
                 }
@@ -189,6 +182,35 @@ public class ProducerBatchTest {
             }
         }
     }
+
+//    public static void main(String[] args){
+//        final long now = 1488748346917L;
+//        for (CompressionType compressionType : CompressionType.values()) {
+//            MemoryRecordsBuilder builder = MemoryRecords.builder(ByteBuffer.allocate(1024), MAGIC_VALUE_V2, compressionType, TimestampType.CREATE_TIME, 0L);
+//
+//            ProducerBatch batch = new ProducerBatch(new TopicPartition("topic", 1), builder, now);
+//            Header header = new RecordHeader("header-key", "header-value".getBytes());
+//
+//            while (true) {
+//                FutureRecordMetadata future = batch.tryAppend(now, "hi".getBytes(), "there".getBytes(), new Header[]{header}, null, now);
+//                if (future == null) {
+//                    break;
+//                }
+//            }
+//            Deque<ProducerBatch> batches = batch.split(200);
+//            assertTrue("This batch should be split to multiple small batches.", batches.size() >= 2);
+//
+//            for (ProducerBatch splitProducerBatch : batches) {
+//                for (RecordBatch splitBatch : splitProducerBatch.records().batches()) {
+//                    for (Record record : splitBatch) {
+//                        assertTrue("Header size should be 1.", record.headers().length == 1);
+//                        assertTrue("Header key should be 'header-key'.", record.headers()[0].key().equals("header-key"));
+//                        assertTrue("Header value should be 'header-value'.", new String(record.headers()[0].value()).equals("header-value"));
+//                    }
+//                }
+//            }
+//        }
+//    }
 
     @Test
     public void testSplitPreservesMagicAndCompressionType() {

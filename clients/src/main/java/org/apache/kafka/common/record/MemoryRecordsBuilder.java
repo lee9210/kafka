@@ -90,6 +90,7 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     private long producerId;
     /** 创建者代数 */
     private short producerEpoch;
+    /** 基本序列号 */
     private int baseSequence;
     // Number of bytes (excluding the header) written before compression
     /** 压缩前写入的字节数(不包括header) */
@@ -328,7 +329,7 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
-     * 释放记录追加所需的资源(例如压缩缓冲区)。
+     * 释放记录追加所需的资源(例如压缩缓冲区)。把数据刷到内存中
      * 调用此方法后，只能更新 RecordBatch header。
      *
      * Release resources required for record appends (e.g. compression buffers). Once this method is called, it's only
@@ -918,6 +919,7 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     /**
+     * 检查剩余空间是否足够写入
      * 检查是否为包含给定键/值对的新记录留有空间。如果没有添加任何记录，则返回true。
      *
      * Check if we have room for a new record containing the given key/value pair. If no records have been

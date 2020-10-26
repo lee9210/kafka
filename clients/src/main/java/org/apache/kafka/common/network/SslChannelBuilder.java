@@ -62,12 +62,14 @@ public class SslChannelBuilder implements ChannelBuilder, ListenerReconfigurable
         this.log = logContext.logger(getClass());
     }
 
+    @Override
     public void configure(Map<String, ?> configs) throws KafkaException {
         try {
             this.configs = configs;
             String sslPrincipalMappingRules = (String) configs.get(BrokerSecurityConfigs.SSL_PRINCIPAL_MAPPING_RULES_CONFIG);
-            if (sslPrincipalMappingRules != null)
+            if (sslPrincipalMappingRules != null) {
                 sslPrincipalMapper = SslPrincipalMapper.fromRules(sslPrincipalMappingRules);
+            }
             this.sslFactory = new SslFactory(mode, null, isInterBrokerListener);
             this.sslFactory.configure(this.configs);
         } catch (KafkaException e) {
@@ -115,7 +117,9 @@ public class SslChannelBuilder implements ChannelBuilder, ListenerReconfigurable
 
     @Override
     public void close() {
-        if (sslFactory != null) sslFactory.close();
+        if (sslFactory != null) {
+            sslFactory.close();
+        }
     }
 
     protected SslTransportLayer buildTransportLayer(SslFactory sslFactory, String id, SelectionKey key,
@@ -192,8 +196,9 @@ public class SslChannelBuilder implements ChannelBuilder, ListenerReconfigurable
         public KafkaPrincipal principal() {
             InetAddress clientAddress = transportLayer.socketChannel().socket().getInetAddress();
             // listenerName should only be null in Client mode where principal() should not be called
-            if (listenerName == null)
+            if (listenerName == null) {
                 throw new IllegalStateException("Unexpected call to principal() when listenerName is null");
+            }
             SslAuthenticationContext context = new SslAuthenticationContext(
                     transportLayer.sslSession(),
                     clientAddress,
@@ -203,8 +208,9 @@ public class SslChannelBuilder implements ChannelBuilder, ListenerReconfigurable
 
         @Override
         public void close() throws IOException {
-            if (principalBuilder instanceof Closeable)
+            if (principalBuilder instanceof Closeable) {
                 Utils.closeQuietly((Closeable) principalBuilder, "principal builder");
+            }
         }
 
         /**

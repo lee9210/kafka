@@ -26,9 +26,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * consumer元数据信息
+ */
 public class ConsumerMetadata extends Metadata {
+    /** 内部主题 */
     private final boolean includeInternalTopics;
+    /** 允许自动创建主题 */
     private final boolean allowAutoTopicCreation;
+    /** 订阅状态记录类 */
     private final SubscriptionState subscription;
     private final Set<String> transientTopics;
 
@@ -72,11 +78,13 @@ public class ConsumerMetadata extends Metadata {
 
     @Override
     protected synchronized boolean retainTopic(String topic, boolean isInternal, long nowMs) {
-        if (transientTopics.contains(topic) || subscription.needsMetadata(topic))
+        if (transientTopics.contains(topic) || subscription.needsMetadata(topic)) {
             return true;
+        }
 
-        if (isInternal && !includeInternalTopics)
+        if (isInternal && !includeInternalTopics) {
             return false;
+        }
 
         return subscription.matchesSubscribedPattern(topic);
     }

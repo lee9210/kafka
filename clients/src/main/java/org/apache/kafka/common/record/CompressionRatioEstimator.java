@@ -80,6 +80,8 @@ public class CompressionRatioEstimator {
     }
 
     /**
+     * 设置主题压缩类型组合的压缩估计。
+     *
      * Set the compression estimation for a topic compression type combination. This method is for unit test purpose.
      */
     public static void setEstimation(String topic, CompressionType type, float ratio) {
@@ -95,8 +97,9 @@ public class CompressionRatioEstimator {
             compressionRatioForTopic = initialCompressionRatio();
             float[] existingCompressionRatio = COMPRESSION_RATIO.putIfAbsent(topic, compressionRatioForTopic);
             // Someone created the compression ratio array before us, use it.
-            if (existingCompressionRatio != null)
+            if (existingCompressionRatio != null) {
                 return existingCompressionRatio;
+            }
         }
         return compressionRatioForTopic;
     }

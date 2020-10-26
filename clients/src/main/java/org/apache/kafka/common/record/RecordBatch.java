@@ -59,7 +59,7 @@ public interface RecordBatch extends Iterable<Record> {
     int NO_SEQUENCE = -1;
 
     /**
-     * 用于指示未知的先导时期，当record set第一次由生成器创建时就是这种情况。
+     * leader epoch未定义时，当record set第一次由生成器创建时就是这种情况。
      *
      * Used to indicate an unknown leader epoch, which will be the case when the record set is
      * first created by the producer.

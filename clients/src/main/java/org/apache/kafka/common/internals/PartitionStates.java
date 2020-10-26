@@ -54,8 +54,9 @@ public class PartitionStates<S> {
 
     public void moveToEnd(TopicPartition topicPartition) {
         S state = map.remove(topicPartition);
-        if (state != null)
+        if (state != null) {
             map.put(topicPartition, state);
+        }
     }
 
     public void updateAndMoveToEnd(TopicPartition topicPartition, S state) {

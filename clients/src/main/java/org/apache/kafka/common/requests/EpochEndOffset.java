@@ -85,6 +85,9 @@ public class EpochEndOffset {
         return Objects.hash(error, leaderEpoch, endOffset);
     }
 
+    /**
+     * 检测是否为初始化状态
+     */
     public boolean hasUndefinedEpochOrOffset() {
         return this.endOffset == UNDEFINED_EPOCH_OFFSET ||
             this.leaderEpoch == UNDEFINED_EPOCH;

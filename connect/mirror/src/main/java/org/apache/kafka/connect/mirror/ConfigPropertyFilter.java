@@ -31,6 +31,7 @@ public interface ConfigPropertyFilter extends Configurable, AutoCloseable {
         //nop
     }
 
+    @Override
     default void configure(Map<String, ?> props) {
         //nop
     }

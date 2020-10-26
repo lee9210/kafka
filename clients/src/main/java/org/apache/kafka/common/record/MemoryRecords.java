@@ -36,12 +36,19 @@ import java.util.List;
 import java.util.Objects;
 
 /**
+ * 是Kakfa中Record在内存中的实现形式，它基于Java NIO中ByteBuffer来实现。
+ *
+ * 由ByteBuffer支持的{@link Records}实现。它仅用于就地读取或修改record batch的现有缓冲区。
+ * 要创建一个新的缓冲区，请参阅{@link MemoryRecordsBuilder}或其中一个{@link #builder(ByteBuffer, byte, CompressionType, TimestampType, long)}变体。
+ *
  * A {@link Records} implementation backed by a ByteBuffer. This is used only for reading or
  * modifying in-place an existing buffer of record batches. To create a new buffer see {@link MemoryRecordsBuilder},
  * or one of the {@link #builder(ByteBuffer, byte, CompressionType, TimestampType, long)} variants.
  */
 public class MemoryRecords extends AbstractRecords {
     private static final Logger log = LoggerFactory.getLogger(MemoryRecords.class);
+
+    /** 空对象 */
     public static final MemoryRecords EMPTY = MemoryRecords.readableRecords(ByteBuffer.allocate(0));
 
     private final ByteBuffer buffer;
@@ -61,13 +68,18 @@ public class MemoryRecords extends AbstractRecords {
         return buffer.limit();
     }
 
+    /**
+     * 尝试将此缓冲区的内容写入一个通道。
+     */
     @Override
     public long writeTo(GatheringByteChannel channel, long position, int length) throws IOException {
-        if (position > Integer.MAX_VALUE)
+        if (position > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("position should not be greater than Integer.MAX_VALUE: " + position);
-        if (position + length > buffer.limit())
+        }
+        if (position + length > buffer.limit()) {
             throw new IllegalArgumentException("position+length should not be greater than buffer.limit(), position: "
                     + position + ", length: " + length + ", buffer.limit(): " + buffer.limit());
+        }
 
         int pos = (int) position;
         ByteBuffer dup = buffer.duplicate();
@@ -77,6 +89,7 @@ public class MemoryRecords extends AbstractRecords {
     }
 
     /**
+     * 将所有record写入给定的通道(包括部分record)。
      * Write all records to the given channel (including partial records).
      * @param channel The channel to write to
      * @return The number of bytes written
@@ -85,61 +98,90 @@ public class MemoryRecords extends AbstractRecords {
     public int writeFullyTo(GatheringByteChannel channel) throws IOException {
         buffer.mark();
         int written = 0;
-        while (written < sizeInBytes())
+        while (written < sizeInBytes()) {
             written += channel.write(buffer);
+        }
         buffer.reset();
         return written;
     }
 
     /**
+     * 此消息中不包括任何部分、尾部消息的总字节数。这可能比{@link #sizeInBytes()}返回的要小。
+     * 有效字节数
      * The total number of bytes in this message set not including any partial, trailing messages. This
      * may be smaller than what is returned by {@link #sizeInBytes()}.
      * @return The number of valid bytes
      */
     public int validBytes() {
-        if (validBytes >= 0)
+        // 如果已经验证过，直接返回
+        if (validBytes >= 0) {
             return validBytes;
+        }
 
         int bytes = 0;
-        for (RecordBatch batch : batches())
+        for (RecordBatch batch : batches()) {
+            // 获取此batch的大小然后累加
             bytes += batch.sizeInBytes();
+        }
 
         this.validBytes = bytes;
         return bytes;
     }
 
+    /**
+     * 向下转换record格式
+     *
+     * @param toMagic The magic value to convert to
+     * @param firstOffset The starting offset for returned records. This only impacts some cases. See
+     *                    {@link RecordsUtil#downConvert(Iterable, byte, long, Time)} for an explanation.
+     * @param time instance used for reporting stats
+     * @return
+     */
     @Override
     public ConvertedRecords<MemoryRecords> downConvert(byte toMagic, long firstOffset, Time time) {
+        // 转换成toMagic版本的消息类型
         return RecordsUtil.downConvert(batches(), toMagic, firstOffset, time);
     }
 
+    /**
+     * 获取迭代器
+     * @return
+     */
     @Override
     public AbstractIterator<MutableRecordBatch> batchIterator() {
         return new RecordBatchIterator<>(new ByteBufferLogInputStream(buffer.duplicate(), Integer.MAX_VALUE));
     }
 
     /**
+     * 验证第一个batch的header并返回批大小。
+     *
      * Validates the header of the first batch and returns batch size.
      * @return first batch size including LOG_OVERHEAD if buffer contains header up to
      *         magic byte, null otherwise
      * @throws CorruptRecordException if record size or magic is invalid
      */
     public Integer firstBatchSize() {
-        if (buffer.remaining() < HEADER_SIZE_UP_TO_MAGIC)
+        if (buffer.remaining() < HEADER_SIZE_UP_TO_MAGIC) {
             return null;
+        }
         return new ByteBufferLogInputStream(buffer, Integer.MAX_VALUE).nextBatchSize();
     }
 
     /**
+     * 将record过滤到提供的ByteBuffer中。
+     *
      * Filter the records into the provided ByteBuffer.
      *
-     * @param partition                   The partition that is filtered (used only for logging)
-     * @param filter                      The filter function
-     * @param destinationBuffer           The byte buffer to write the filtered records to
-     * @param maxRecordBatchSize          The maximum record batch size. Note this is not a hard limit: if a batch
+     * @param partition                   被过滤的分区(仅用于日志记录)。  The partition that is filtered (used only for logging)
+     * @param filter                      过滤函数。 The filter function
+     * @param destinationBuffer           要将过滤后的记录写入其中的字节缓冲区。   The byte buffer to write the filtered records to
+     * @param maxRecordBatchSize          最大记录批大小。
+     *                                    这不是一个硬性限制:如果过滤后批处理超过这个限制，我们会记录一个警告，但仍然会创建batch。
+     *                                    The maximum record batch size. Note this is not a hard limit: if a batch
      *                                    exceeds this after filtering, we log a warning, but the batch will still be
      *                                    created.
-     * @param decompressionBufferSupplier The supplier of ByteBuffer(s) used for decompression if supported. For small
+     * @param decompressionBufferSupplier 如果支持的话，用于解压的ByteBuffer的提供者。
+     *                                    The supplier of ByteBuffer(s) used for decompression if supported. For small
      *                                    record batches, allocating a potentially large buffer (64 KB for LZ4) will
      *                                    dominate the cost of decompressing and iterating over the records in the
      *                                    batch. As such, a supplier that reuses buffers will have a significant
@@ -151,6 +193,9 @@ public class MemoryRecords extends AbstractRecords {
         return filterTo(partition, batches(), filter, destinationBuffer, maxRecordBatchSize, decompressionBufferSupplier);
     }
 
+    /**
+     * todo 解析
+     */
     private static FilterResult filterTo(TopicPartition partition, Iterable<MutableRecordBatch> batches,
                                          RecordFilter filter, ByteBuffer destinationBuffer, int maxRecordBatchSize,
                                          BufferSupplier decompressionBufferSupplier) {
@@ -162,8 +207,9 @@ public class MemoryRecords extends AbstractRecords {
             BatchRetention batchRetention = filter.checkBatchRetention(batch);
             filterResult.bytesRead += batch.sizeInBytes();
 
-            if (batchRetention == BatchRetention.DELETE)
+            if (batchRetention == BatchRetention.DELETE) {
                 continue;
+            }
 
             // We use the absolute offset to decide whether to retain the message or not. Due to KAFKA-4298, we have to
             // allow for the possibility that a previous version corrupted the log by writing a compressed record batch
@@ -182,11 +228,13 @@ public class MemoryRecords extends AbstractRecords {
                     if (filter.shouldRetainRecord(batch, record)) {
                         // Check for log corruption due to KAFKA-4298. If we find it, make sure that we overwrite
                         // the corrupted batch with correct data.
-                        if (!record.hasMagic(batchMagic))
+                        if (!record.hasMagic(batchMagic)) {
                             writeOriginalBatch = false;
+                        }
 
-                        if (record.offset() > maxOffset)
+                        if (record.offset() > maxOffset) {
                             maxOffset = record.offset();
+                        }
 
                         retainedRecords.add(record);
                     } else {
@@ -203,19 +251,21 @@ public class MemoryRecords extends AbstractRecords {
                     MemoryRecordsBuilder builder = buildRetainedRecordsInto(batch, retainedRecords, bufferOutputStream);
                     MemoryRecords records = builder.build();
                     int filteredBatchSize = records.sizeInBytes();
-                    if (filteredBatchSize > batch.sizeInBytes() && filteredBatchSize > maxRecordBatchSize)
+                    if (filteredBatchSize > batch.sizeInBytes() && filteredBatchSize > maxRecordBatchSize) {
                         log.warn("Record batch from {} with last offset {} exceeded max record batch size {} after cleaning " +
                                         "(new size is {}). Consumers with version earlier than 0.10.1.0 may need to " +
                                         "increase their fetch sizes.",
                                 partition, batch.lastOffset(), maxRecordBatchSize, filteredBatchSize);
+                    }
 
                     MemoryRecordsBuilder.RecordsInfo info = builder.info();
                     filterResult.updateRetainedBatchMetadata(info.maxTimestamp, info.shallowOffsetOfMaxTimestamp,
                             maxOffset, retainedRecords.size(), filteredBatchSize);
                 }
             } else if (batchRetention == BatchRetention.RETAIN_EMPTY) {
-                if (batchMagic < RecordBatch.MAGIC_VALUE_V2)
+                if (batchMagic < RecordBatch.MAGIC_VALUE_V2) {
                     throw new IllegalStateException("Empty batches are only supported for magic v2 and above");
+                }
 
                 bufferOutputStream.ensureRemaining(DefaultRecordBatch.RECORD_BATCH_OVERHEAD);
                 DefaultRecordBatch.writeEmptyHeader(bufferOutputStream.buffer(), batchMagic, batch.producerId(),
@@ -252,14 +302,16 @@ public class MemoryRecords extends AbstractRecords {
                 originalBatch.producerEpoch(), originalBatch.baseSequence(), originalBatch.isTransactional(),
                 originalBatch.isControlBatch(), originalBatch.partitionLeaderEpoch(), bufferOutputStream.limit());
 
-        for (Record record : retainedRecords)
+        for (Record record : retainedRecords) {
             builder.append(record);
+        }
 
-        if (magic >= RecordBatch.MAGIC_VALUE_V2)
+        if (magic >= RecordBatch.MAGIC_VALUE_V2) {
             // we must preserve the last offset from the initial batch in order to ensure that the
             // last sequence number from the batch remains even after compaction. Otherwise, the producer
             // could incorrectly see an out of sequence error.
             builder.overrideLastOffset(originalBatch.lastOffset());
+        }
 
         return builder;
     }
@@ -271,6 +323,9 @@ public class MemoryRecords extends AbstractRecords {
         return buffer.duplicate();
     }
 
+    /**
+     * 返回迭代器
+     */
     @Override
     public Iterable<MutableRecordBatch> batches() {
         return batches;
@@ -285,10 +340,12 @@ public class MemoryRecords extends AbstractRecords {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o)
+        if (this == o) {
             return true;
-        if (o == null || getClass() != o.getClass())
+        }
+        if (o == null || getClass() != o.getClass()) {
             return false;
+        }
 
         MemoryRecords that = (MemoryRecords) o;
 
@@ -301,6 +358,9 @@ public class MemoryRecords extends AbstractRecords {
     }
 
     public static abstract class RecordFilter {
+        /**
+         * batch状态
+         */
         public enum BatchRetention {
             DELETE, // Delete the batch without inspecting records
             RETAIN_EMPTY, // Retain the batch even if it is empty
@@ -308,6 +368,8 @@ public class MemoryRecords extends AbstractRecords {
         }
 
         /**
+         * 检查batch是否可以丢弃(即是否需要单独检查record)。
+         *
          * Check whether the full batch can be discarded (i.e. whether we even need to
          * check the records individually).
          */
@@ -356,10 +418,12 @@ public class MemoryRecords extends AbstractRecords {
         }
 
         private void validateBatchMetadata(long maxTimestamp, long shallowOffsetOfMaxTimestamp, long maxOffset) {
-            if (maxTimestamp != RecordBatch.NO_TIMESTAMP && shallowOffsetOfMaxTimestamp < 0)
+            if (maxTimestamp != RecordBatch.NO_TIMESTAMP && shallowOffsetOfMaxTimestamp < 0) {
                 throw new IllegalArgumentException("shallowOffset undefined for maximum timestamp " + maxTimestamp);
-            if (maxOffset < 0)
+            }
+            if (maxOffset < 0) {
                 throw new IllegalArgumentException("maxOffset undefined");
+            }
         }
 
         public ByteBuffer outputBuffer() {
@@ -395,6 +459,11 @@ public class MemoryRecords extends AbstractRecords {
         }
     }
 
+    /**
+     * 构造一个写MemoryRecords
+     * @param buffer
+     * @return
+     */
     public static MemoryRecords readableRecords(ByteBuffer buffer) {
         return new MemoryRecords(buffer);
     }
@@ -433,8 +502,9 @@ public class MemoryRecords extends AbstractRecords {
                                                TimestampType timestampType,
                                                long baseOffset) {
         long logAppendTime = RecordBatch.NO_TIMESTAMP;
-        if (timestampType == TimestampType.LOG_APPEND_TIME)
+        if (timestampType == TimestampType.LOG_APPEND_TIME) {
             logAppendTime = System.currentTimeMillis();
+        }
         return builder(buffer, magic, compressionType, timestampType, baseOffset, logAppendTime,
                 RecordBatch.NO_PRODUCER_ID, RecordBatch.NO_PRODUCER_EPOCH, RecordBatch.NO_SEQUENCE, false,
                 RecordBatch.NO_PARTITION_LEADER_EPOCH);
@@ -491,6 +561,9 @@ public class MemoryRecords extends AbstractRecords {
                 logAppendTime, producerId, producerEpoch, baseSequence, isTransactional, false, partitionLeaderEpoch);
     }
 
+    /**
+     * 根据buffer创建一个新的内存缓冲区
+     */
     public static MemoryRecordsBuilder builder(ByteBuffer buffer,
                                                byte magic,
                                                CompressionType compressionType,
@@ -587,18 +660,21 @@ public class MemoryRecords extends AbstractRecords {
                                             TimestampType timestampType, long producerId, short producerEpoch,
                                             int baseSequence, int partitionLeaderEpoch, boolean isTransactional,
                                             SimpleRecord... records) {
-        if (records.length == 0)
+        if (records.length == 0) {
             return MemoryRecords.EMPTY;
+        }
         int sizeEstimate = AbstractRecords.estimateSizeInBytes(magic, compressionType, Arrays.asList(records));
         ByteBufferOutputStream bufferStream = new ByteBufferOutputStream(sizeEstimate);
         long logAppendTime = RecordBatch.NO_TIMESTAMP;
-        if (timestampType == TimestampType.LOG_APPEND_TIME)
+        if (timestampType == TimestampType.LOG_APPEND_TIME) {
             logAppendTime = System.currentTimeMillis();
+        }
         MemoryRecordsBuilder builder = new MemoryRecordsBuilder(bufferStream, magic, compressionType, timestampType,
                 initialOffset, logAppendTime, producerId, producerEpoch, baseSequence, isTransactional, false,
                 partitionLeaderEpoch, sizeEstimate);
-        for (SimpleRecord record : records)
+        for (SimpleRecord record : records) {
             builder.append(record);
+        }
         return builder.build();
     }
 
@@ -659,5 +735,4 @@ public class MemoryRecords extends AbstractRecords {
         builder.appendLeaderChangeMessage(timestamp, leaderChangeMessage);
         builder.close();
     }
-
 }

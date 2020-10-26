@@ -32,6 +32,7 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
 /**
+ * 压缩方式
  * The compression type to use
  */
 public enum CompressionType {
@@ -156,6 +157,7 @@ public enum CompressionType {
     public abstract OutputStream wrapForOutput(ByteBufferOutputStream bufferStream, byte messageVersion);
 
     /**
+     * 用一个InputStream来包装缓冲区,它将处理压缩类型的数据。
      * Wrap buffer with an InputStream that will decompress data with this CompressionType.
      *
      * @param decompressionBufferSupplier The supplier of ByteBuffer(s) used for decompression if supported.
@@ -184,18 +186,19 @@ public enum CompressionType {
     }
 
     public static CompressionType forName(String name) {
-        if (NONE.name.equals(name))
+        if (NONE.name.equals(name)) {
             return NONE;
-        else if (GZIP.name.equals(name))
+        } else if (GZIP.name.equals(name)) {
             return GZIP;
-        else if (SNAPPY.name.equals(name))
+        } else if (SNAPPY.name.equals(name)) {
             return SNAPPY;
-        else if (LZ4.name.equals(name))
+        } else if (LZ4.name.equals(name)) {
             return LZ4;
-        else if (ZSTD.name.equals(name))
+        } else if (ZSTD.name.equals(name)) {
             return ZSTD;
-        else
+        } else {
             throw new IllegalArgumentException("Unknown compression name: " + name);
+        }
     }
 
     // We should only have a runtime dependency on compression algorithms in case the native libraries don't support

@@ -24,8 +24,18 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Records工具类
+ */
 public class RecordsUtil {
     /**
+     * 向下转换batch到提供的消息格式版本。
+     * 第一个偏移量参数只与从未压缩的v2或更高到v1或更低的转换有关。原因是v0和v1中未压缩的record没有成batch(换句话说，每个批处理总是有1条记录)。
+     * 如果客户机从未压缩的v2格式批处理的中间开始请求v1格式的记录，我们需要在转换期间从批处理中删除记录。librdkafka的一些版本依赖于这个正确性。
+     * temporaryMemoryBytes计算假设在调用此方法之前没有将批加载到堆中(通过FileChannelRecordBatch之类的类)。
+     * 这是代理中的情况(我们只在向下转换时将记录加载到堆中)，但不适用于生成器。
+     * 然而，在producer中向下转换是非常少见的，处理这种情况的额外复杂性并不值得。
+     *
      * Down convert batches to the provided message format version. The first offset parameter is only relevant in the
      * conversion from uncompressed v2 or higher to v1 or lower. The reason is that uncompressed records in v0 and v1
      * are not batched (put another way, each batch always has 1 record).
@@ -48,12 +58,14 @@ public class RecordsUtil {
 
         for (RecordBatch batch : batches) {
             if (toMagic < RecordBatch.MAGIC_VALUE_V2) {
-                if (batch.isControlBatch())
+                if (batch.isControlBatch()) {
                     continue;
+                }
 
-                if (batch.compressionType() == CompressionType.ZSTD)
+                if (batch.compressionType() == CompressionType.ZSTD) {
                     throw new UnsupportedCompressionTypeException("Down-conversion of zstandard-compressed batches " +
                         "is not supported");
+                }
             }
 
             if (batch.magic() <= toMagic) {
@@ -63,16 +75,19 @@ public class RecordsUtil {
                 List<Record> records = new ArrayList<>();
                 for (Record record : batch) {
                     // See the method javadoc for an explanation
-                    if (toMagic > RecordBatch.MAGIC_VALUE_V1 || batch.isCompressed() || record.offset() >= firstOffset)
+                    if (toMagic > RecordBatch.MAGIC_VALUE_V1 || batch.isCompressed() || record.offset() >= firstOffset) {
                         records.add(record);
+                    }
                 }
-                if (records.isEmpty())
+                if (records.isEmpty()) {
                     continue;
+                }
                 final long baseOffset;
-                if (batch.magic() >= RecordBatch.MAGIC_VALUE_V2 && toMagic >= RecordBatch.MAGIC_VALUE_V2)
+                if (batch.magic() >= RecordBatch.MAGIC_VALUE_V2 && toMagic >= RecordBatch.MAGIC_VALUE_V2) {
                     baseOffset = batch.baseOffset();
-                else
+                } else {
                     baseOffset = records.get(0).offset();
+                }
                 totalSizeEstimate += AbstractRecords.estimateSizeInBytes(toMagic, baseOffset, batch.compressionType(), records);
                 recordBatchAndRecordsList.add(new RecordBatchAndRecords(batch, records, baseOffset));
             }
@@ -102,6 +117,7 @@ public class RecordsUtil {
     }
 
     /**
+     * 返回包含已转换的记录批的缓冲区。返回的缓冲区可能与接收的不一样(例如，它可能需要扩展)。
      * Return a buffer containing the converted record batches. The returned buffer may not be the same as the received
      * one (e.g. it may require expansion).
      */
@@ -114,10 +130,11 @@ public class RecordsUtil {
                 timestampType, recordBatchAndRecords.baseOffset, logAppendTime);
         for (Record record : recordBatchAndRecords.records) {
             // Down-convert this record. Ignore headers when down-converting to V0 and V1 since they are not supported
-            if (magic > RecordBatch.MAGIC_VALUE_V1)
+            if (magic > RecordBatch.MAGIC_VALUE_V1) {
                 builder.append(record);
-            else
+            } else {
                 builder.appendWithOffset(record.offset(), record.timestamp(), record.key(), record.value());
+            }
         }
 
         builder.close();

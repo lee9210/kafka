@@ -209,6 +209,9 @@ public class TxnOffsetCommitRequest extends AbstractRequest {
         return new TxnOffsetCommitRequest(ApiKeys.TXN_OFFSET_COMMIT.parseRequest(version, buffer), version);
     }
 
+    /**
+     * 已提交的offset
+     */
     public static class CommittedOffset {
         public final long offset;
         public final String metadata;

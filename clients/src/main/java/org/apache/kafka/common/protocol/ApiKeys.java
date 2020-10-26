@@ -152,6 +152,8 @@ import static org.apache.kafka.common.protocol.types.Type.NULLABLE_BYTES;
 import static org.apache.kafka.common.protocol.types.Type.RECORDS;
 
 /**
+ * 所有Kafka api的标识符
+ * 主要用来标识此请求是什么类型。
  * Identifiers for all the Kafka APIs
  */
 public enum ApiKeys {
@@ -259,28 +261,35 @@ public enum ApiKeys {
 
     static {
         int maxKey = -1;
-        for (ApiKeys key : ApiKeys.values())
+        for (ApiKeys key : ApiKeys.values()) {
             maxKey = Math.max(maxKey, key.id);
+        }
         ApiKeys[] idToType = new ApiKeys[maxKey + 1];
-        for (ApiKeys key : ApiKeys.values())
+        for (ApiKeys key : ApiKeys.values()) {
             idToType[key.id] = key;
+        }
         ID_TO_TYPE = idToType;
         MAX_API_KEY = maxKey;
     }
 
     /** the permanent and immutable id of an API--this can't change ever */
+    /** 一个API的永久的、不可变的id——这是永远不能改变的 */
     public final short id;
 
     /** an english description of the api--this is for debugging and can change */
+    /** api的英文描述——这是用于调试的，可以更改 */
     public final String name;
 
     /** indicates if this is a ClusterAction request used only by brokers */
+    /** 表示这是否是一个仅由broker使用的ClusterAction请求 */
     public final boolean clusterAction;
 
     /** indicates the minimum required inter broker magic required to support the API */
+    /** 表示支持API所需的最小broker magic值 */
     public final byte minRequiredInterBrokerMagic;
 
     /** indicates whether the API is enabled and should be exposed in ApiVersions **/
+    /** 指示API是否被启用，是否应该在ApiVersions中公开 */
     public final boolean isEnabled;
 
     public final Schema[] requestSchemas;
@@ -313,23 +322,27 @@ public enum ApiKeys {
         Schema[] requestSchemas,
         Schema[] responseSchemas
     ) {
-        if (id < 0)
+        if (id < 0) {
             throw new IllegalArgumentException("id must not be negative, id: " + id);
+        }
         this.id = (short) id;
         this.name = name;
         this.clusterAction = clusterAction;
         this.minRequiredInterBrokerMagic = minRequiredInterBrokerMagic;
         this.isEnabled = isEnabled;
 
-        if (requestSchemas.length != responseSchemas.length)
+        if (requestSchemas.length != responseSchemas.length) {
             throw new IllegalStateException(requestSchemas.length + " request versions for api " + name
                     + " but " + responseSchemas.length + " response versions.");
+        }
 
         for (int i = 0; i < requestSchemas.length; ++i) {
-            if (requestSchemas[i] == null)
+            if (requestSchemas[i] == null) {
                 throw new IllegalStateException("Request schema for api " + name + " for version " + i + " is null");
-            if (responseSchemas[i] == null)
+            }
+            if (responseSchemas[i] == null) {
                 throw new IllegalStateException("Response schema for api " + name + " for version " + i + " is null");
+            }
         }
 
         boolean requestRetainsBufferReference = false;
@@ -345,9 +358,10 @@ public enum ApiKeys {
     }
 
     public static ApiKeys forId(int id) {
-        if (!hasId(id))
+        if (!hasId(id)) {
             throw new IllegalArgumentException(String.format("Unexpected ApiKeys id `%s`, it should be between `%s` " +
                     "and `%s` (inclusive)", id, MIN_API_KEY, MAX_API_KEY));
+        }
         return ID_TO_TYPE[id];
     }
 
@@ -387,14 +401,16 @@ public enum ApiKeys {
             if (version != fallbackVersion) {
                 buffer.position(bufferPosition);
                 return responseSchema(fallbackVersion).read(buffer);
-            } else
+            } else {
                 throw e;
+            }
         }
     }
 
     private Schema schemaFor(Schema[] versions, short version) {
-        if (!isVersionSupported(version))
+        if (!isVersionSupported(version)) {
             throw new IllegalArgumentException("Invalid version for API key " + this + ": " + version);
+        }
         return versions[version];
     }
 
@@ -441,14 +457,18 @@ public enum ApiKeys {
             @Override
             public void visit(Type field) {
                 if (field == BYTES || field == NULLABLE_BYTES || field == RECORDS ||
-                    field == COMPACT_BYTES || field == COMPACT_NULLABLE_BYTES)
+                    field == COMPACT_BYTES || field == COMPACT_NULLABLE_BYTES) {
                     hasBuffer.set(true);
+                }
             }
         };
         schema.walk(detector);
         return hasBuffer.get();
     }
 
+    /**
+     * 获取启用的ApiKey
+     */
     public static List<ApiKeys> enabledApis() {
         return Arrays.stream(values())
             .filter(api -> api.isEnabled)

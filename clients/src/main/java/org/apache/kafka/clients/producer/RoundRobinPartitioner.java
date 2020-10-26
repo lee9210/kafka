@@ -37,6 +37,7 @@ import org.apache.kafka.common.utils.Utils;
 public class RoundRobinPartitioner implements Partitioner {
     private final ConcurrentMap<String, AtomicInteger> topicCounterMap = new ConcurrentHashMap<>();
 
+    @Override
     public void configure(Map<String, ?> configs) {}
 
     /**

@@ -22,12 +22,14 @@ import org.apache.kafka.common.Cluster;
 import java.io.Closeable;
 
 /**
+ * 分区选择器，根据一定的策略，将消息路由到合适的分区
  * Partitioner Interface
  */
-
 public interface Partitioner extends Configurable, Closeable {
 
     /**
+     * 获取record的partition
+     *
      * Compute the partition for the given record.
      *
      * @param topic The topic name
@@ -37,21 +39,23 @@ public interface Partitioner extends Configurable, Closeable {
      * @param valueBytes The serialized value to partition on or null
      * @param cluster The current cluster metadata
      */
-    public int partition(String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster);
+    int partition(String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster);
 
     /**
+     * 关闭partitioner
      * This is called when partitioner is closed.
      */
-    public void close();
+    @Override
+    void close();
 
 
     /**
+     * 通知分区器将要创建一个新batch。
      * Notifies the partitioner a new batch is about to be created. When using the sticky partitioner,
      * this method can change the chosen sticky partition for the new batch. 
      * @param topic The topic name
      * @param cluster The current cluster metadata
      * @param prevPartition The partition previously selected for the record that triggered a new batch
      */
-    default public void onNewBatch(String topic, Cluster cluster, int prevPartition) {
-    }
+    default void onNewBatch(String topic, Cluster cluster, int prevPartition) { }
 }

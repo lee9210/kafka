@@ -17,6 +17,8 @@
 package org.apache.kafka.common.utils;
 
 /**
+ * 参数传递
+ *
  * Primitive reference used to pass primitive typed values as parameter-by-reference.
  *
  * This is cheaper than using Atomic references.

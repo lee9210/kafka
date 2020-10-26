@@ -25,6 +25,7 @@ import java.nio.ByteBuffer;
 import java.util.Map;
 
 /**
+ * 事务返回结果
  * Possible error codes:
  *
  *   - {@link Errors#NOT_COORDINATOR}
@@ -39,6 +40,7 @@ import java.util.Map;
  */
 public class AddOffsetsToTxnResponse extends AbstractResponse {
 
+    /** 返回结果 */
     public AddOffsetsToTxnResponseData data;
 
     public AddOffsetsToTxnResponse(AddOffsetsToTxnResponseData data) {

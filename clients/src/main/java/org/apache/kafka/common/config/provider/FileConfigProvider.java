@@ -35,6 +35,7 @@ import java.util.Set;
  */
 public class FileConfigProvider implements ConfigProvider {
 
+    @Override
     public void configure(Map<String, ?> configs) {
     }
 

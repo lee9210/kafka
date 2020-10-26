@@ -24,6 +24,7 @@ import org.slf4j.helpers.MessageFormatter;
 import org.slf4j.spi.LocationAwareLogger;
 
 /**
+ * 这个类提供了一种使用通用上下文对日志记录器进行检测的方法，该上下文可用于自动丰富日志消息。
  * This class provides a way to instrument loggers with a common context which can be used to
  * automatically enrich log messages. For example, in the KafkaConsumer, it is often useful to know
  * the groupId of the consumer, so this can be added to a context object which can then be passed to

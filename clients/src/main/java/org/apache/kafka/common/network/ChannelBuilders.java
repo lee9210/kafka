@@ -65,10 +65,12 @@ public class ChannelBuilders {
             LogContext logContext) {
 
         if (securityProtocol == SecurityProtocol.SASL_PLAINTEXT || securityProtocol == SecurityProtocol.SASL_SSL) {
-            if (contextType == null)
+            if (contextType == null) {
                 throw new IllegalArgumentException("`contextType` must be non-null if `securityProtocol` is `" + securityProtocol + "`");
-            if (clientSaslMechanism == null)
+            }
+            if (clientSaslMechanism == null) {
                 throw new IllegalArgumentException("`clientSaslMechanism` must be non-null in client mode if `securityProtocol` is `" + securityProtocol + "`");
+            }
         }
         return create(securityProtocol, Mode.CLIENT, contextType, config, listenerName, false, clientSaslMechanism,
                 saslHandshakeRequestEnable, null, null, time, logContext);

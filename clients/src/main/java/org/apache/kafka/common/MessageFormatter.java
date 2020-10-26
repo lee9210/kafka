@@ -46,6 +46,7 @@ public interface MessageFormatter extends Configurable, Closeable {
      * Configures the MessageFormatter
      * @param configs Map to configure the formatter
      */
+    @Override
     default public void configure(Map<String, ?> configs) {
         Properties properties = new Properties();
         properties.putAll(configs);

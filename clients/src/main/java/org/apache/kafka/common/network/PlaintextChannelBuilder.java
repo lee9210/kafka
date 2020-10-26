@@ -45,6 +45,7 @@ public class PlaintextChannelBuilder implements ChannelBuilder {
         this.listenerName = listenerName;
     }
 
+    @Override
     public void configure(Map<String, ?> configs) throws KafkaException {
         this.configs = configs;
     }

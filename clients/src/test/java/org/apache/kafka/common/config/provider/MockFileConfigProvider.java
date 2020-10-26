@@ -32,6 +32,7 @@ public class MockFileConfigProvider extends FileConfigProvider {
     private String id;
     private boolean closed = false;
 
+    @Override
     public void configure(Map<String, ?> configs) {
         Object id = configs.get("testId");
         if (id == null) {

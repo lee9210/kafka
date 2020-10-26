@@ -401,6 +401,7 @@ public final class ByteUtils {
     }
 
     /**
+     * 用可变长度格式对integer进行编码所需的字节数。
      * Number of bytes needed to encode an integer in variable-length format.
      *
      * @param value The signed value
